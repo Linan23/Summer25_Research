@@ -1,17 +1,3 @@
-/**
- * How A-tree works:
- *
- * Step 1: Leaf placement
- *      - Traverse the tree recursively, whenever a node is missing a child -> add a leaf node
- * then number leaves from left to right as they are encountered.
- *
- * Step 2: Build Leaf Array
- *      - leaves vector stores all leaf values in left-to-right order, each leaf get a pos index
- *
- * Step 3: Calculate Ranges:
- *      - Each node range is the (leftmost left pos, rightmost left pos) in its subtree
- *      - Range represents leaf span
- */
 #include <iostream>
 #include <vector>
 #include <unordered_map>
@@ -19,7 +5,7 @@
 
 struct RangeTree {
     std::vector<int> leaves;                   // Store leaf values in left-to-right order
-    std::unordered_map<int, std::pair<int, int> > ranges; // node_value -> (start, end) leaf range
+    std::unordered_map<int, std::pair<int, int>> ranges; // node_value -> (start, end) leaf range
 
     // Parent-child relationships
     std::unordered_map<int, int> parent;       // child -> parent
@@ -114,7 +100,196 @@ struct RangeTree {
         return leaves.size();
     }
 
+    // Perform right rotation at the given node
+    // Right rotation: if node has left child, promote left child up
+    bool rotateRight(int node) {
+        int left = getLeftChild(node);
+        if (left == -1) return false; // Can't rotate without left child
+
+        int par = getParent(node);
+        int left_right = getRightChild(left);
+
+        // Update parent relationships
+        if (par != -1) {
+            // Update parent's child pointer
+            if (getLeftChild(par) == node) {
+                left_child[par] = left;
+            } else {
+                right_child[par] = left;
+            }
+            parent[left] = par;
+        } else {
+            // Node was root, now left is root
+            root = left;
+            parent.erase(left);
+        }
+
+        // Left becomes parent of node
+        parent[node] = left;
+        right_child[left] = node;
+
+        // Left's right child becomes node's left child
+        if (left_right != -1) {
+            parent[left_right] = node;
+            left_child[node] = left_right;
+        } else {
+            left_child.erase(node);
+        }
+
+        // Recalculate ranges for affected subtrees
+        recalculateRanges();
+
+        return true;
+    }
+
+    // Perform left rotation at the given node
+    // Left rotation: if node has right child, promote right child up
+    bool rotateLeft(int node) {
+        int right = getRightChild(node);
+        if (right == -1) return false; // Can't rotate without right child
+
+        int par = getParent(node);
+        int right_left = getLeftChild(right);
+
+        // Update parent relationships
+        if (par != -1) {
+            // Update parent's child pointer
+            if (getLeftChild(par) == node) {
+                left_child[par] = right;
+            } else {
+                right_child[par] = right;
+            }
+            parent[right] = par;
+        } else {
+            // Node was root, now right is root
+            root = right;
+            parent.erase(right);
+        }
+
+        // Right becomes parent of node
+        parent[node] = right;
+        left_child[right] = node;
+
+        // Right's left child becomes node's right child
+        if (right_left != -1) {
+            parent[right_left] = node;
+            right_child[node] = right_left;
+        } else {
+            right_child.erase(node);
+        }
+
+        // Recalculate ranges for affected subtrees
+        recalculateRanges();
+
+        return true;
+    }
+
+    // Get all possible rotations from current state (for brute force)
+    std::vector<RangeTree> getAllPossibleRotations() const {
+        std::vector<RangeTree> rotations;
+
+        // Try rotating at every node
+        for (const auto& [node, range] : ranges) {
+            // Try right rotation
+            RangeTree right_rotated = *this;
+            if (right_rotated.rotateRight(node)) {
+                rotations.push_back(right_rotated);
+            }
+
+            // Try left rotation
+            RangeTree left_rotated = *this;
+            if (left_rotated.rotateLeft(node)) {
+                rotations.push_back(left_rotated);
+            }
+        }
+
+        return rotations;
+    }
+
 private:
+    // Recalculate ranges for all nodes after a rotation
+    void recalculateRanges() {
+        ranges.clear();
+        if (root != -1) {
+            calculateRangesRecursive(root);
+        }
+    }
+
+    // Recursively calculate ranges for each node based on current tree structure
+    std::pair<int, int> calculateRangesRecursive(int node) {
+        int left = getLeftChild(node);
+        int right = getRightChild(node);
+
+        std::pair<int, int> left_range, right_range;
+
+        // Calculate left subtree range
+        if (left != -1) {
+            left_range = calculateRangesRecursive(left);
+        } else {
+            // No left child - get the leaf position that would be here
+            int leaf_pos = getLeafPosition(node, true);
+            left_range = {leaf_pos, leaf_pos};
+        }
+
+        // Calculate right subtree range
+        if (right != -1) {
+            right_range = calculateRangesRecursive(right);
+        } else {
+            // No right child - get the leaf position that would be here
+            int leaf_pos = getLeafPosition(node, false);
+            right_range = {leaf_pos, leaf_pos};
+        }
+
+        // This node's range spans from leftmost to rightmost leaf in its subtree
+        int range_start = left_range.first;
+        int range_end = right_range.second;
+
+        ranges[node] = {range_start, range_end};
+        return {range_start, range_end};
+    }
+
+    // Get the leaf position for a missing child
+    int getLeafPosition(int node, bool isLeft) {
+        // Perform inorder traversal to get the sequence of nodes
+        std::vector<int> inorder_nodes;
+        inorderTraversal(root, inorder_nodes);
+
+        // Find position of current node
+        int node_index = -1;
+        for (size_t i = 0; i < inorder_nodes.size(); i++) {
+            if (inorder_nodes[i] == node) {
+                node_index = i;
+                break;
+            }
+        }
+
+        if (isLeft) {
+            // Left missing child corresponds to leaf position before this node
+            return node_index;
+        } else {
+            // Right missing child corresponds to leaf position after this node
+            return node_index + 1;
+        }
+    }
+
+    // Inorder traversal to get nodes in left-to-right order
+    void inorderTraversal(int node, std::vector<int>& result) {
+        if (node == -1) return;
+
+        int left = getLeftChild(node);
+        int right = getRightChild(node);
+
+        if (left != -1) {
+            inorderTraversal(left, result);
+        }
+
+        result.push_back(node);
+
+        if (right != -1) {
+            inorderTraversal(right, result);
+        }
+    }
+
     std::pair<int, int> buildRecursiveWithLeaves(const std::vector<int>& preorder, const std::vector<int>& inorder,
                                                  int pre_start, int pre_end, int in_start, int in_end, int par) {
         if (pre_start > pre_end || in_start > in_end) {
@@ -188,13 +363,13 @@ RangeTree buildExampleTree() {
 
     // Building the example tree from your professor:
     //         6
-    //        /
-    //       4
-    //      /\
-    //     3  5
-    //    /
-    //   2
+    //      /
+    //     4
+    //     /\
+    //   3  5
     //  /
+    // 2
+    // /
     // 1
 
     // Preorder: [6, 4, 3, 2, 1, 5]
