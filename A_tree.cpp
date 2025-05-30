@@ -2,10 +2,10 @@
 #include <vector>
 #include <unordered_map>
 #include <string>
+#include <algorithm>
 
 struct RangeTree {
-    std::vector<int> leaves;                   // Store leaf values in left-to-right order
-    std::unordered_map<int, std::pair<int, int>> ranges; // node_value -> (start, end) leaf range
+    std::unordered_map<int, std::pair<int, int>> ranges; // node_value -> (start, end) range
 
     // Parent-child relationships
     std::unordered_map<int, int> parent;       // child -> parent
@@ -15,9 +15,8 @@ struct RangeTree {
 
     RangeTree() : root(-1) {}
 
-    // Build tree and calculate ranges based on leaf positions
-    void buildWithLeaves(const std::vector<int>& preorder, const std::vector<int>& inorder) {
-        leaves.clear();
+    // Build tree from preorder and inorder traversals
+    void build(const std::vector<int>& preorder, const std::vector<int>& inorder) {
         ranges.clear();
         parent.clear();
         left_child.clear();
@@ -26,7 +25,8 @@ struct RangeTree {
 
         if (!preorder.empty()) {
             root = preorder[0];
-            buildRecursiveWithLeaves(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, -1);
+            buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, -1);
+            calculateAllRanges(inorder);
         }
     }
 
@@ -34,11 +34,6 @@ struct RangeTree {
     void print() const {
         std::cout << "Tree structure:\n";
         printStructure();
-
-        std::cout << "\nLeaves in left-to-right order: ";
-        for (size_t i = 0; i < leaves.size(); i++) {
-            std::cout << "L" << i << " ";
-        }
 
         std::cout << "\nRanges (actual nodes only):\n";
         std::vector<int> node_order = {1, 2, 3, 4, 5, 6}; // Adjust based on your tree
@@ -81,27 +76,7 @@ struct RangeTree {
         return (it != right_child.end()) ? it->second : -1;
     }
 
-    // Check if two trees have the same structure (for comparison)
-    bool hasSameStructure(const RangeTree& other) const {
-        // Compare ranges - if ranges match, trees are equivalent
-        if (ranges.size() != other.ranges.size()) return false;
-
-        for (const auto& [node, range] : ranges) {
-            auto it = other.ranges.find(node);
-            if (it == other.ranges.end() || it->second != range) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // Get the total number of leaves
-    int leafCount() const {
-        return leaves.size();
-    }
-
     // Perform right rotation at the given node
-    // Right rotation: if node has left child, promote left child up
     bool rotateRight(int node) {
         int left = getLeftChild(node);
         if (left == -1) return false; // Can't rotate without left child
@@ -136,14 +111,15 @@ struct RangeTree {
             left_child.erase(node);
         }
 
-        // Recalculate ranges for affected subtrees
-        recalculateRanges();
+        // Recalculate ranges for the entire tree
+        std::vector<int> inorder_seq;
+        inorderTraversal(root, inorder_seq);
+        calculateAllRanges(inorder_seq);
 
         return true;
     }
 
     // Perform left rotation at the given node
-    // Left rotation: if node has right child, promote right child up
     bool rotateLeft(int node) {
         int right = getRightChild(node);
         if (right == -1) return false; // Can't rotate without right child
@@ -178,125 +154,20 @@ struct RangeTree {
             right_child.erase(node);
         }
 
-        // Recalculate ranges for affected subtrees
-        recalculateRanges();
+        // Recalculate ranges for the entire tree
+        std::vector<int> inorder_seq;
+        inorderTraversal(root, inorder_seq);
+        calculateAllRanges(inorder_seq);
 
         return true;
     }
 
-    // Get all possible rotations from current state (for brute force)
-    std::vector<RangeTree> getAllPossibleRotations() const {
-        std::vector<RangeTree> rotations;
-
-        // Try rotating at every node
-        for (const auto& [node, range] : ranges) {
-            // Try right rotation
-            RangeTree right_rotated = *this;
-            if (right_rotated.rotateRight(node)) {
-                rotations.push_back(right_rotated);
-            }
-
-            // Try left rotation
-            RangeTree left_rotated = *this;
-            if (left_rotated.rotateLeft(node)) {
-                rotations.push_back(left_rotated);
-            }
-        }
-
-        return rotations;
-    }
-
 private:
-    // Recalculate ranges for all nodes after a rotation
-    void recalculateRanges() {
-        ranges.clear();
-        if (root != -1) {
-            calculateRangesRecursive(root);
-        }
-    }
-
-    // Recursively calculate ranges for each node based on current tree structure
-    std::pair<int, int> calculateRangesRecursive(int node) {
-        int left = getLeftChild(node);
-        int right = getRightChild(node);
-
-        std::pair<int, int> left_range, right_range;
-
-        // Calculate left subtree range
-        if (left != -1) {
-            left_range = calculateRangesRecursive(left);
-        } else {
-            // No left child - get the leaf position that would be here
-            int leaf_pos = getLeafPosition(node, true);
-            left_range = {leaf_pos, leaf_pos};
-        }
-
-        // Calculate right subtree range
-        if (right != -1) {
-            right_range = calculateRangesRecursive(right);
-        } else {
-            // No right child - get the leaf position that would be here
-            int leaf_pos = getLeafPosition(node, false);
-            right_range = {leaf_pos, leaf_pos};
-        }
-
-        // This node's range spans from leftmost to rightmost leaf in its subtree
-        int range_start = left_range.first;
-        int range_end = right_range.second;
-
-        ranges[node] = {range_start, range_end};
-        return {range_start, range_end};
-    }
-
-    // Get the leaf position for a missing child
-    int getLeafPosition(int node, bool isLeft) {
-        // Perform inorder traversal to get the sequence of nodes
-        std::vector<int> inorder_nodes;
-        inorderTraversal(root, inorder_nodes);
-
-        // Find position of current node
-        int node_index = -1;
-        for (size_t i = 0; i < inorder_nodes.size(); i++) {
-            if (inorder_nodes[i] == node) {
-                node_index = i;
-                break;
-            }
-        }
-
-        if (isLeft) {
-            // Left missing child corresponds to leaf position before this node
-            return node_index;
-        } else {
-            // Right missing child corresponds to leaf position after this node
-            return node_index + 1;
-        }
-    }
-
-    // Inorder traversal to get nodes in left-to-right order
-    void inorderTraversal(int node, std::vector<int>& result) {
-        if (node == -1) return;
-
-        int left = getLeftChild(node);
-        int right = getRightChild(node);
-
-        if (left != -1) {
-            inorderTraversal(left, result);
-        }
-
-        result.push_back(node);
-
-        if (right != -1) {
-            inorderTraversal(right, result);
-        }
-    }
-
-    std::pair<int, int> buildRecursiveWithLeaves(const std::vector<int>& preorder, const std::vector<int>& inorder,
-                                                 int pre_start, int pre_end, int in_start, int in_end, int par) {
+    // Build tree recursively
+    void buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
+                        int pre_start, int pre_end, int in_start, int in_end, int par) {
         if (pre_start > pre_end || in_start > in_end) {
-            // Add a leaf and return its position
-            int leaf_pos = leaves.size();
-            leaves.push_back(1000 + leaf_pos); // Unique leaf value
-            return {leaf_pos, leaf_pos};
+            return;
         }
 
         int root_val = preorder[pre_start];
@@ -316,44 +187,91 @@ private:
         }
 
         int left_size = root_idx - in_start;
-        int right_size = in_end - root_idx;
 
         // Build left subtree
-        std::pair<int, int> left_range;
         if (left_size > 0) {
             int left_root = preorder[pre_start + 1];
             left_child[root_val] = left_root;
-            left_range = buildRecursiveWithLeaves(preorder, inorder,
-                                                  pre_start + 1, pre_start + left_size,
-                                                  in_start, root_idx - 1, root_val);
-        } else {
-            // No left child - range represents a leaf
-            left_range = buildRecursiveWithLeaves(preorder, inorder,
-                                                  pre_start + 1, pre_start,
-                                                  in_start, root_idx - 1, root_val);
+            buildRecursive(preorder, inorder,
+                           pre_start + 1, pre_start + left_size,
+                           in_start, root_idx - 1, root_val);
         }
 
         // Build right subtree
-        std::pair<int, int> right_range;
-        if (right_size > 0) {
+        if (root_idx < in_end) {
             int right_root = preorder[pre_start + left_size + 1];
             right_child[root_val] = right_root;
-            right_range = buildRecursiveWithLeaves(preorder, inorder,
-                                                   pre_start + left_size + 1, pre_end,
-                                                   root_idx + 1, in_end, root_val);
-        } else {
-            // No right child - range represents a leaf
-            right_range = buildRecursiveWithLeaves(preorder, inorder,
-                                                   pre_start + left_size + 1, pre_start + left_size,
-                                                   root_idx + 1, in_end, root_val);
+            buildRecursive(preorder, inorder,
+                           pre_start + left_size + 1, pre_end,
+                           root_idx + 1, in_end, root_val);
         }
+    }
 
-        // This node's range spans from leftmost leaf to rightmost leaf in its subtree
-        int range_start = left_range.first;
-        int range_end = right_range.second;
+    // Calculate ranges for all nodes based on inorder traversal
+    void calculateAllRanges(const std::vector<int>& inorder_seq) {
+        ranges.clear();
 
-        ranges[root_val] = {range_start, range_end};
-        return {range_start, range_end};
+        // For each node, find its position and subtree coverage in inorder
+        for (int node : inorder_seq) {
+            // Find the leftmost and rightmost positions this node covers
+            int left_pos = findLeftmostInSubtree(node, inorder_seq);
+            int right_pos = findRightmostInSubtree(node, inorder_seq);
+            ranges[node] = {left_pos, right_pos + 1}; // +1 for exclusive end
+        }
+    }
+
+    // Find leftmost position in subtree rooted at node
+    int findLeftmostInSubtree(int node, const std::vector<int>& inorder_seq) {
+        // Get all nodes in subtree
+        std::vector<int> subtree_nodes;
+        getSubtreeInorder(node, subtree_nodes);
+
+        // Find the position of the leftmost node in the full inorder sequence
+        if (subtree_nodes.empty()) return 0;
+
+        int leftmost_node = subtree_nodes[0];
+        for (size_t i = 0; i < inorder_seq.size(); i++) {
+            if (inorder_seq[i] == leftmost_node) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    // Find rightmost position in subtree rooted at node
+    int findRightmostInSubtree(int node, const std::vector<int>& inorder_seq) {
+        // Get all nodes in subtree
+        std::vector<int> subtree_nodes;
+        getSubtreeInorder(node, subtree_nodes);
+
+        // Find the position of the rightmost node in the full inorder sequence
+        if (subtree_nodes.empty()) return 0;
+
+        int rightmost_node = subtree_nodes.back();
+        for (size_t i = 0; i < inorder_seq.size(); i++) {
+            if (inorder_seq[i] == rightmost_node) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    // Get inorder traversal of subtree rooted at node
+    void getSubtreeInorder(int node, std::vector<int>& result) {
+        if (node == -1) return;
+
+        getSubtreeInorder(getLeftChild(node), result);
+        result.push_back(node);
+        getSubtreeInorder(getRightChild(node), result);
+    }
+
+    // Inorder traversal to get nodes in left-to-right order
+    void inorderTraversal(int node, std::vector<int>& result) {
+        if (node == -1) return;
+
+        inorderTraversal(getLeftChild(node), result);
+        result.push_back(node);
+        inorderTraversal(getRightChild(node), result);
     }
 };
 
@@ -361,7 +279,7 @@ private:
 RangeTree buildExampleTree() {
     RangeTree tree;
 
-    // Building the example tree from your professor:
+    // Building the example tree:
     //         6
     //      /
     //     4
@@ -378,24 +296,48 @@ RangeTree buildExampleTree() {
     std::vector<int> preorder = {6, 4, 3, 2, 1, 5};
     std::vector<int> inorder = {1, 2, 3, 4, 5, 6};
 
-    tree.buildWithLeaves(preorder, inorder);
+    tree.build(preorder, inorder);
 
     return tree;
 }
 
 int main() {
-    std::cout << "Building example tree...\n\n";
-
+    std::cout << "=== ORIGINAL TREE ===\n";
     RangeTree tree = buildExampleTree();
     tree.print();
 
-    std::cout << "\nTotal leaves: " << tree.leafCount() << std::endl;
+    std::cout << "\n=== TESTING RIGHT ROTATION AT NODE 4 ===\n";
 
-    // Test navigation functions
-    std::cout << "\nTesting navigation:\n";
-    std::cout << "Parent of 1: " << tree.getParent(1) << std::endl;
-    std::cout << "Left child of 4: " << tree.getLeftChild(4) << std::endl;
-    std::cout << "Right child of 4: " << tree.getRightChild(4) << std::endl;
+    // Make a copy for rotation
+    RangeTree rotated_tree = tree;
+
+    std::cout << "Before rotation:\n";
+    rotated_tree.print();
+
+    // Perform right rotation at node 4
+    if (rotated_tree.rotateRight(4)) {
+        std::cout << "\nAfter right rotation at node 4:\n";
+        rotated_tree.print();
+
+        std::cout << "\nExpected after rotation:\n";
+        std::cout << "Structure: 6->3, 3->2,4, 2->1, 4->5\n";
+        std::cout << "Expected ranges: 1(0,1) 2(0,2) 3(0,5) 4(3,5) 5(4,5) 6(0,6)\n";
+
+    } else {
+        std::cout << "Right rotation at node 4 failed!\n";
+    }
+
+    std::cout << "\n=== TESTING LEFT ROTATION AT NODE 4 ===\n";
+
+    // Test left rotation on original tree
+    RangeTree left_rotated_tree = tree;
+
+    if (left_rotated_tree.rotateLeft(4)) {
+        std::cout << "After left rotation at node 4:\n";
+        left_rotated_tree.print();
+    } else {
+        std::cout << "Left rotation at node 4 failed (expected - no right child initially)!\n";
+    }
 
     return 0;
 }
