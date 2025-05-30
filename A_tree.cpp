@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <algorithm>
 
@@ -16,7 +17,16 @@ struct RangeTree {
     // Store the original inorder sequence for range calculations
     std::vector<int> original_inorder;
 
-    RangeTree() : root(-1) {}
+    // Set to track which nodes are dummy leaves (negative values)
+    std::unordered_set<int> dummy_leaves;
+
+    // Position mapping for O(1) range calculations
+    std::unordered_map<int, int> position_map;
+
+    // Next dummy leaf ID (negative numbers)
+    int next_dummy_id;
+
+    RangeTree() : root(-1), next_dummy_id(-1000) {}
 
     // Build tree from preorder and inorder traversals
     void build(const std::vector<int>& preorder, const std::vector<int>& inorder) {
@@ -24,14 +34,23 @@ struct RangeTree {
         parent.clear();
         left_child.clear();
         right_child.clear();
+        dummy_leaves.clear();
+        position_map.clear();
         root = -1;
+        next_dummy_id = -1000;
 
         // Store the original inorder sequence
         original_inorder = inorder;
 
+        // Create position mapping from ORIGINAL inorder sequence
+        for (size_t i = 0; i < original_inorder.size(); i++) {
+            position_map[original_inorder[i]] = i;
+        }
+
         if (!preorder.empty()) {
             root = preorder[0];
             buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, -1);
+            addDummyLeaves();
             calculateAllRanges();
         }
     }
@@ -40,16 +59,18 @@ struct RangeTree {
         std::cout << "Tree structure:\n";
         printStructure();
 
-        std::cout << "\nRanges (actual nodes only):\n";
+        std::cout << "\nRanges (original nodes only):\n";
 
-        // Get all nodes and sort them
+        // Get all original nodes and sort them
         std::vector<int> nodes;
         for (const auto& [node, range] : ranges) {
-            nodes.push_back(node);
+            if (dummy_leaves.find(node) == dummy_leaves.end()) {
+                nodes.push_back(node);
+            }
         }
         std::sort(nodes.begin(), nodes.end());
 
-        // Print all nodes
+        // Print all original nodes
         for (int node : nodes) {
             auto range = ranges.at(node);
             std::cout << node << "(" << range.first << "," << range.second << ") ";
@@ -60,14 +81,17 @@ struct RangeTree {
     // Print tree structure for debugging
     void printStructure() const {
         std::cout << "Root: " << root << "\n";
-        std::cout << "Parent relationships:\n";
+        std::cout << "Parent relationships (including dummy leaves):\n";
         for (const auto& [child, par] : parent) {
-            std::cout << "  " << child << " -> parent: " << par << "\n";
+            std::string child_type = (dummy_leaves.find(child) != dummy_leaves.end()) ? " (dummy)" : "";
+            std::cout << "  " << child << child_type << " -> parent: " << par << "\n";
         }
         std::cout << "Child relationships:\n";
         for (const auto& [par, left] : left_child) {
             int right = (right_child.find(par) != right_child.end()) ? right_child.at(par) : -1;
-            std::cout << "  " << par << " -> left: " << left << ", right: " << right << "\n";
+            std::string left_type = (left != -1 && dummy_leaves.find(left) != dummy_leaves.end()) ? " (dummy)" : "";
+            std::string right_type = (right != -1 && dummy_leaves.find(right) != dummy_leaves.end()) ? " (dummy)" : "";
+            std::cout << "  " << par << " -> left: " << left << left_type << ", right: " << right << right_type << "\n";
         }
     }
 
@@ -87,10 +111,49 @@ struct RangeTree {
         return (it != right_child.end()) ? it->second : -1;
     }
 
-    // Perform right rotation at the given node
+    // TRUE O(1) range update for a single node (with dummy leaves)
+    void updateNodeRange(int node) {
+        if (dummy_leaves.find(node) != dummy_leaves.end()) {
+            // Dummy leaves have empty ranges
+            ranges[node] = {0, 0};
+            return;
+        }
+
+        // For inner nodes with dummy leaves, range calculation is O(1)
+        int left_child_node = getLeftChild(node);
+        int right_child_node = getRightChild(node);
+
+        // With dummy leaves, every original node is guaranteed to have both children
+        if (left_child_node == -1 || right_child_node == -1) {
+            // This shouldn't happen with proper dummy leaf augmentation
+            ranges[node] = {position_map[node], position_map[node] + 1};
+            return;
+        }
+
+        // O(1) calculation: combine ranges from left and right children
+        auto left_range = ranges[left_child_node];
+        auto right_range = ranges[right_child_node];
+
+        int start = std::min(left_range.first, position_map[node]);
+        int end = std::max(right_range.second, position_map[node] + 1);
+
+        // If left child is dummy, start from this node's position
+        if (dummy_leaves.find(left_child_node) != dummy_leaves.end()) {
+            start = position_map[node];
+        }
+
+        // If right child is dummy, end at this node's position + 1
+        if (dummy_leaves.find(right_child_node) != dummy_leaves.end()) {
+            end = position_map[node] + 1;
+        }
+
+        ranges[node] = {start, end};
+    }
+
+    // Perform right rotation at the given node - TRUE O(1)!
     bool rotateRight(int node) {
         int left = getLeftChild(node);
-        if (left == -1) return false;
+        if (left == -1 || dummy_leaves.find(left) != dummy_leaves.end()) return false;
 
         int par = getParent(node);
         int left_right = getRightChild(left);
@@ -118,15 +181,17 @@ struct RangeTree {
             left_child.erase(node);
         }
 
-        // Recalculate ranges after rotation
-        calculateAllRanges();
+        // TRUE O(1) range updates - only update the two affected nodes!
+        updateNodeRange(node);  // The node that was rotated down
+        updateNodeRange(left);  // The node that was rotated up
+
         return true;
     }
 
-    // Perform left rotation at the given node
+    // Perform left rotation at the given node - TRUE O(1)!
     bool rotateLeft(int node) {
         int right = getRightChild(node);
-        if (right == -1) return false;
+        if (right == -1 || dummy_leaves.find(right) != dummy_leaves.end()) return false;
 
         int par = getParent(node);
         int right_left = getLeftChild(right);
@@ -154,12 +219,104 @@ struct RangeTree {
             right_child.erase(node);
         }
 
-        // Recalculate ranges after rotation
-        calculateAllRanges();
+        // TRUE O(1) range updates - only update the two affected nodes!
+        updateNodeRange(node);   // The node that was rotated down
+        updateNodeRange(right);  // The node that was rotated up
+
         return true;
     }
 
 private:
+    // Add dummy leaves to make every original node an inner node
+    void addDummyLeaves() {
+        std::vector<int> original_nodes;
+
+        // Collect all original nodes
+        for (int node : original_inorder) {
+            original_nodes.push_back(node);
+        }
+
+        // Add dummy leaves to nodes that don't have both children
+        for (int node : original_nodes) {
+            int left_child_node = getLeftChild(node);
+            int right_child_node = getRightChild(node);
+
+            // Add dummy left child if missing
+            if (left_child_node == -1) {
+                int dummy_left = next_dummy_id--;
+                dummy_leaves.insert(dummy_left);
+                left_child[node] = dummy_left;
+                parent[dummy_left] = node;
+            }
+
+            // Add dummy right child if missing
+            if (right_child_node == -1) {
+                int dummy_right = next_dummy_id--;
+                dummy_leaves.insert(dummy_right);
+                right_child[node] = dummy_right;
+                parent[dummy_right] = node;
+            }
+        }
+
+        // Recursively add dummy leaves to newly created inner nodes if needed
+        // (This handles cases where we need to add more levels)
+        addDummyLeavesRecursive();
+    }
+
+    // Recursively ensure all non-dummy nodes have two children
+    void addDummyLeavesRecursive() {
+        bool added_new_dummies = true;
+
+        while (added_new_dummies) {
+            added_new_dummies = false;
+            std::vector<int> nodes_to_check;
+
+            // Collect all non-dummy nodes
+            for (const auto& [child, par] : parent) {
+                if (dummy_leaves.find(child) == dummy_leaves.end()) {
+                    nodes_to_check.push_back(child);
+                }
+                if (dummy_leaves.find(par) == dummy_leaves.end()) {
+                    nodes_to_check.push_back(par);
+                }
+            }
+
+            // Add root if it exists
+            if (root != -1 && dummy_leaves.find(root) == dummy_leaves.end()) {
+                nodes_to_check.push_back(root);
+            }
+
+            // Remove duplicates
+            std::sort(nodes_to_check.begin(), nodes_to_check.end());
+            nodes_to_check.erase(std::unique(nodes_to_check.begin(), nodes_to_check.end()), nodes_to_check.end());
+
+            for (int node : nodes_to_check) {
+                if (dummy_leaves.find(node) != dummy_leaves.end()) continue;
+
+                int left_child_node = getLeftChild(node);
+                int right_child_node = getRightChild(node);
+
+                // Add dummy left child if missing
+                if (left_child_node == -1) {
+                    int dummy_left = next_dummy_id--;
+                    dummy_leaves.insert(dummy_left);
+                    left_child[node] = dummy_left;
+                    parent[dummy_left] = node;
+                    added_new_dummies = true;
+                }
+
+                // Add dummy right child if missing
+                if (right_child_node == -1) {
+                    int dummy_right = next_dummy_id--;
+                    dummy_leaves.insert(dummy_right);
+                    right_child[node] = dummy_right;
+                    parent[dummy_right] = node;
+                    added_new_dummies = true;
+                }
+            }
+        }
+    }
+
     // Build tree recursively
     void buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
                         int pre_start, int pre_end, int in_start, int in_end, int par) {
@@ -204,49 +361,36 @@ private:
         }
     }
 
-    // Calculate ranges for all nodes based on ORIGINAL inorder sequence
+    // Calculate ranges for all nodes - only called during initial build
     void calculateAllRanges() {
         ranges.clear();
 
-        // Create position mapping from ORIGINAL inorder sequence
-        std::unordered_map<int, int> position_map;
-        for (size_t i = 0; i < original_inorder.size(); i++) {
-            position_map[original_inorder[i]] = i;
+        // Initialize dummy leaf ranges (empty ranges)
+        for (int dummy : dummy_leaves) {
+            ranges[dummy] = {0, 0};
         }
 
-        // Calculate range for each node based on its current subtree span
-        for (int node : original_inorder) {
-            auto [leftmost_pos, rightmost_pos] = getSubtreePositionRange(node, position_map);
-            ranges[node] = {leftmost_pos, rightmost_pos + 1}; // +1 for exclusive end
-        }
+        // Calculate ranges for original nodes in post-order (bottom-up)
+        calculateRangesPostOrder(root);
     }
 
-    // Get the leftmost and rightmost positions that a subtree spans
-    std::pair<int, int> getSubtreePositionRange(int node, const std::unordered_map<int, int>& position_map) {
-        if (node == -1) return {-1, -1};
+    // Post-order traversal to calculate ranges bottom-up
+    void calculateRangesPostOrder(int node) {
+        if (node == -1) return;
 
-        // Start with this node's position in the ORIGINAL sequence
-        int node_pos = position_map.at(node);
-        int leftmost = node_pos;
-        int rightmost = node_pos;
-
-        // Check left subtree
         int left_child_node = getLeftChild(node);
-        if (left_child_node != -1) {
-            auto [left_min, left_max] = getSubtreePositionRange(left_child_node, position_map);
-            leftmost = std::min(leftmost, left_min);
-            rightmost = std::max(rightmost, left_max);
-        }
-
-        // Check right subtree
         int right_child_node = getRightChild(node);
+
+        // Process children first (post-order)
+        if (left_child_node != -1) {
+            calculateRangesPostOrder(left_child_node);
+        }
         if (right_child_node != -1) {
-            auto [right_min, right_max] = getSubtreePositionRange(right_child_node, position_map);
-            leftmost = std::min(leftmost, right_min);
-            rightmost = std::max(rightmost, right_max);
+            calculateRangesPostOrder(right_child_node);
         }
 
-        return {leftmost, rightmost};
+        // Now calculate this node's range
+        updateNodeRange(node);
     }
 };
 
@@ -299,10 +443,10 @@ RangeTree buildBalancedTree() {
 }
 
 void testBasicRotation() {
-    std::cout << "=== TESTING BASIC RIGHT ROTATION ===\n";
+    std::cout << "=== TESTING BASIC RIGHT ROTATION WITH DUMMY LEAVES ===\n";
 
     RangeTree tree = buildExampleTree();
-    std::cout << "Original tree:\n";
+    std::cout << "Original tree (with dummy leaves added):\n";
     tree.print();
 
     std::cout << "\nAfter right rotation at node 4:\n";
@@ -314,7 +458,7 @@ void testBasicRotation() {
 }
 
 void testLeftRotation() {
-    std::cout << "\n=== TESTING LEFT ROTATION ===\n";
+    std::cout << "\n=== TESTING LEFT ROTATION WITH DUMMY LEAVES ===\n";
 
     // Create a tree where left rotation is possible
     RangeTree tree;
@@ -331,7 +475,7 @@ void testLeftRotation() {
 }
 
 void testMultipleRotations() {
-    std::cout << "\n=== TESTING MULTIPLE ROTATIONS ===\n";
+    std::cout << "\n=== TESTING MULTIPLE ROTATIONS WITH DUMMY LEAVES ===\n";
 
     RangeTree tree = buildBalancedTree();
     std::cout << "Balanced tree:\n";
