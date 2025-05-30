@@ -348,11 +348,8 @@ void testMultipleRotations() {
 }
 
 int main() {
-    std::cout << "=== FIXED RANGE TREE ROTATION TESTS ===\n";
-
     testBasicRotation();
     testLeftRotation();
     testMultipleRotations();
-
     return 0;
 }
