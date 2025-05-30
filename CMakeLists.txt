@@ -11,10 +11,10 @@ add_executable(A_tree
 
 # Build B-tree binary
 add_executable(B-tree
-  B-tree.cpp
+  b_tree.cpp
 )
 
 # “make compile” builds *both*
 add_custom_target(compile
-  DEPENDS A_tree B-tree
+  DEPENDS A_tree b_tree
 )
