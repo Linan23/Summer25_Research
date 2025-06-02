@@ -4,18 +4,35 @@
 #include <unordered_set>
 #include <string>
 
-// Simple hash and equality for std::pair<int,int>
+
+
+/*
+Todo list:
+    Stress testing comparison & rotation feature...
+*/
+// Comparison Helper Functions
+
+/* 
+Helper function that takes a (parent, child) pair and turns it into a single number so the hash-set can store it quickly.
+It mixes the two integers into one 64-bit value and runs the standard hash on it
+*/
 struct PairHash {
     size_t operator()(const std::pair<int,int>& p) const {
         // Combine two 32-bit ints into one 64-bit for hashing
         return std::hash<long long>()(((long long)p.first << 32) ^ (unsigned long long)p.second);
     }
 };
+
+/*
+ Helper function to show how hash-set checks if two (parent, child) pairs are exactly the same. 
+ It returns true only if both the parent and the child values match.
+ */
 struct PairEq {
     bool operator()(const std::pair<int,int>& a, const std::pair<int,int>& b) const {
         return a.first == b.first && a.second == b.second;
     }
 };
+
 
 // Node holds a value, pointers, and the leaf-range indices.
 struct Node {
