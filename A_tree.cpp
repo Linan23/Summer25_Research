@@ -153,7 +153,7 @@ struct VectorRangeTreeMap {
         std::cout << "\n";
     }
 
-    // Rotate x and its right child up (left-rotate) - SUPER FAST with vector lookups!
+    // Rotate x and its right child up (left-rotate) - Only updates the two affected nodes
     void rotateLeft(int x_value) {
         // Convert from original value to internal ID
         if (value_to_id.find(x_value) == value_to_id.end()) return;
@@ -198,11 +198,12 @@ struct VectorRangeTreeMap {
         left_child[y_index] = x;
         parent[x_index] = y;
 
-        // fix ranges up from y
-        updateRangesUp(y);
+        // FIXED: Only update ranges for the two nodes involved in rotation
+        updateNodeRange(x);  // Update x's range first (now child)
+        updateNodeRange(y);  // Update y's range second (now parent)
     }
 
-    // Rotate x and its left child up (right-rotate)
+    // Rotate x and its left child up (right-rotate) - Only updates the two affected nodes
     void rotateRight(int x_value) {
         // Convert from original value to internal ID
         if (value_to_id.find(x_value) == value_to_id.end()) return;
@@ -247,8 +248,9 @@ struct VectorRangeTreeMap {
         right_child[y_index] = x;
         parent[x_index] = y;
 
-        // fix ranges up from y
-        updateRangesUp(y);
+        // FIXED: Only update ranges for the two nodes involved in rotation
+        updateNodeRange(x);  // Update x's range first (now child)
+        updateNodeRange(y);  // Update y's range second (now parent)
     }
 
     // Collect all parent->child edges into `out_set`
@@ -558,13 +560,6 @@ private:
         ranges[index] = {start, end};
     }
 
-    // Walk up from n to root, fixing ranges
-    void updateRangesUp(int node_id) {
-        while (node_id != NO_PARENT && exists(node_id)) {
-            updateNodeRange(node_id);
-            node_id = getParent(node_id);
-        }
-    }
 
     // Calculate ranges for all nodes - only called during initial build
     void calculateAllRanges() {
