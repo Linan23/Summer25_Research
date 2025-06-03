@@ -27,212 +27,251 @@ struct PairEq {
     }
 };
 
-struct RangeTreeMap {
-    std::unordered_map<int, std::pair<int, int>> ranges; // node_value -> (start, end) range
+struct VectorRangeTreeMap {
+    // Vector-based storage for MASSIVE performance improvement - O(1) access instead of O(log n) hash lookups
+    std::vector<std::pair<int, int>> ranges;  // index = node_id, value = (start, end) range
+    std::vector<int> parent;                  // index = node_id, value = parent_id
+    std::vector<int> left_child;              // index = node_id, value = left_child_id
+    std::vector<int> right_child;             // index = node_id, value = right_child_id
+    std::vector<bool> is_dummy;               // index = node_id, value = true if dummy leaf
+    std::vector<bool> node_exists;            // index = node_id, value = true if node exists
+    std::vector<int> position_in_inorder;     // index = node_id, value = position in original inorder
 
-    // Parent-child relationships (using maps instead of Node pointers)
-    std::unordered_map<int, int> parent;       // child -> parent
-    std::unordered_map<int, int> left_child;   // parent -> left child
-    std::unordered_map<int, int> right_child;  // parent -> right child
-    int root;                                  // root node value
-    std::vector<int> leaves;                   // leaf values in left-to-right order
-    std::unordered_map<int, int> nodes;       // map value -> node (for compatibility with pointer version)
+    int root;                                 // root node ID
+    std::vector<int> leaves;                  // leaf node IDs in left-to-right order
 
     // Store the original inorder sequence for range calculations
     std::vector<int> original_inorder;
 
-    // Set to track which nodes are dummy leaves (negative values)
-    std::unordered_set<int> dummy_leaves;
+    // Mapping from original values to internal IDs (needed since original values might not be 0-based)
+    std::unordered_map<int, int> value_to_id; // original value -> internal ID
+    std::unordered_map<int, int> id_to_value; // internal ID -> original value
+    int next_id;                              // next available ID for original nodes
+    int next_dummy_id;                        // next available ID for dummy nodes (negative)
 
-    // Position mapping for O(1) range calculations
-    std::unordered_map<int, int> position_map;
+    // Constants for "no value" - cleaner than magic numbers
+    static constexpr int NO_PARENT = -1;
+    static constexpr int NO_CHILD = -1;
 
-    // Next dummy leaf ID (negative numbers)
-    int next_dummy_id;
-
-    RangeTreeMap() : root(-1), next_dummy_id(-1000) {}
+    VectorRangeTreeMap() : root(NO_PARENT), next_id(0), next_dummy_id(-1000) {}
 
     // Build from preorder and inorder lists
     void build(const std::vector<int>& preorder, const std::vector<int>& inorder) {
         // Clear previous data (leaves and nodes)
-        ranges.clear();
-        parent.clear();
-        left_child.clear();
-        right_child.clear();
-        dummy_leaves.clear();
-        position_map.clear();
-        leaves.clear();
-        nodes.clear();
-        root = -1;
-        next_dummy_id = -1000;
+        clear();
 
-        // Store the original inorder sequence
-        original_inorder = inorder;
+        if (preorder.empty()) return;
 
-        // Create position mapping from ORIGINAL inorder sequence
-        for (size_t i = 0; i < original_inorder.size(); i++) {
-            position_map[original_inorder[i]] = i;
+        // Create ID mapping for arbitrary values - converts user values to 0-based IDs
+        createIdMapping(preorder, inorder);
+
+        // Convert to ID-based sequences for internal processing
+        std::vector<int> preorder_ids, inorder_ids;
+        convertToIds(preorder, preorder_ids);
+        convertToIds(inorder, inorder_ids);
+
+        // Store original inorder as IDs
+        original_inorder = inorder_ids;
+
+        // Create position mapping from ORIGINAL inorder sequence - O(n) preprocessing for O(1) lookups
+        for (size_t i = 0; i < inorder_ids.size(); i++) {
+            position_in_inorder[inorder_ids[i]] = i;
         }
 
-        if (!preorder.empty()) {
-            root = preorder[0];
-            buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, -1);
+        root = preorder_ids[0];
+        buildRecursive(preorder_ids, inorder_ids, 0, preorder_ids.size() - 1, 0, inorder_ids.size() - 1, NO_PARENT);
 
-            // Build nodes map for compatibility
-            for (int node : original_inorder) {
-                nodes[node] = node; // In map version, we just store the value itself
-            }
+        // Build leaves vector in left-to-right order
+        buildLeavesVector(root);
 
-            // Build leaves vector in left-to-right order
-            buildLeavesVector(root);
+        addDummyLeaves();
+        calculateAllRanges();
+    }
 
-            addDummyLeaves();
-            calculateAllRanges();
-        }
+    // ULTRA-FAST lookups - single array access, no hashing! O(1) guaranteed
+    inline int getParent(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < parent.size()) ? parent[index] : NO_PARENT;
+    }
+
+    inline int getLeftChild(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < left_child.size()) ? left_child[index] : NO_CHILD;
+    }
+
+    inline int getRightChild(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < right_child.size()) ? right_child[index] : NO_CHILD;
+    }
+
+    inline bool isDummy(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < is_dummy.size()) ? is_dummy[index] : false;
+    }
+
+    inline bool exists(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < node_exists.size()) ? node_exists[index] : false;
+    }
+
+    inline std::pair<int, int> getRange(int node_id) const {
+        int index = (node_id >= 0) ? node_id : -node_id;
+        return (index < ranges.size()) ? ranges[index] : std::make_pair(0, 0);
     }
 
     // Print each node and its range
-    void printTreeStructure(int node = -2, std::string indent = "") const {
-        if (node == -2) node = root; // Default to root on first call
-        if (node == -1) return;
+    void printTreeStructure(int node_id = -2, std::string indent = "") const {
+        if (node_id == -2) node_id = root; // Default to root on first call
+        if (node_id == NO_PARENT || !exists(node_id)) return;
 
-        auto range_it = ranges.find(node);
-        if (range_it != ranges.end()) {
-            std::cout << indent
-                      << "Node " << node
-                      << " (range: " << range_it->second.first
-                      << ", " << range_it->second.second << ")\n";
+        // Convert back to original value for display
+        int original_value = id_to_value.at(node_id);
+        auto range = getRange(node_id);
+
+        std::cout << indent << "Node " << original_value
+                  << " (range: " << range.first << ", " << range.second << ")\n";
+
+        int left = getLeftChild(node_id);
+        if (left != NO_CHILD && !isDummy(left)) {
+            printTreeStructure(left, indent + "  L-");
         }
 
-        auto left_it = left_child.find(node);
-        if (left_it != left_child.end() && dummy_leaves.find(left_it->second) == dummy_leaves.end()) {
-            printTreeStructure(left_it->second, indent + "  L-");
-        }
-
-        auto right_it = right_child.find(node);
-        if (right_it != right_child.end() && dummy_leaves.find(right_it->second) == dummy_leaves.end()) {
-            printTreeStructure(right_it->second, indent + "  R-");
+        int right = getRightChild(node_id);
+        if (right != NO_CHILD && !isDummy(right)) {
+            printTreeStructure(right, indent + "  R-");
         }
     }
 
     // Print just the leaf values in order
     void printLeaves() const {
         std::cout << "Leaves (left to right): ";
-        for(int leaf: leaves)
-            std::cout << leaf << " ";
+        for (int leaf_id : leaves) {
+            if (id_to_value.find(leaf_id) != id_to_value.end()) {
+                std::cout << id_to_value.at(leaf_id) << " ";
+            }
+        }
         std::cout << "\n";
     }
 
-    // Rotate x and its right child up (left-rotate)
-    void rotateLeft(int x) {
-        if (x == -1) return;
+    // Rotate x and its right child up (left-rotate) - SUPER FAST with vector lookups!
+    void rotateLeft(int x_value) {
+        // Convert from original value to internal ID
+        if (value_to_id.find(x_value) == value_to_id.end()) return;
+        int x = value_to_id[x_value];
 
-        auto right_it = right_child.find(x);
-        if (right_it == right_child.end()) return; // no right child
+        if (x == NO_PARENT || !exists(x)) return;
 
-        int y = right_it->second;
-        if (dummy_leaves.find(y) != dummy_leaves.end()) return; // can't rotate dummy
+        int y = getRightChild(x);  // Single array access!
+        if (y == NO_CHILD || isDummy(y)) return; // can't rotate dummy
 
         // Perform rotation logic
-        auto y_left_it = left_child.find(y);
-        int y_left = (y_left_it != left_child.end()) ? y_left_it->second : -1;
+        int y_left = getLeftChild(y);
+        int x_parent = getParent(x);
 
         // Update x's right child
-        if (y_left != -1) {
-            right_child[x] = y_left;
-            parent[y_left] = x;
+        int x_index = (x >= 0) ? x : -x;
+        if (y_left != NO_CHILD) {
+            right_child[x_index] = y_left;
+            int y_left_index = (y_left >= 0) ? y_left : -y_left;
+            parent[y_left_index] = x;
         } else {
-            right_child.erase(x);
+            right_child[x_index] = NO_CHILD;
         }
 
         // Update y's parent
-        auto x_parent_it = parent.find(x);
-        if (x_parent_it != parent.end()) {
-            int x_parent = x_parent_it->second;
-            parent[y] = x_parent;
+        int y_index = (y >= 0) ? y : -y;
+        if (x_parent != NO_PARENT) {
+            parent[y_index] = x_parent;
+            int x_parent_index = (x_parent >= 0) ? x_parent : -x_parent;
 
-            auto x_parent_left_it = left_child.find(x_parent);
-            if (x_parent_left_it != left_child.end() && x_parent_left_it->second == x) {
-                left_child[x_parent] = y;
+            if (getLeftChild(x_parent) == x) {
+                left_child[x_parent_index] = y;
             } else {
-                right_child[x_parent] = y;
+                right_child[x_parent_index] = y;
             }
         } else {
             root = y;
-            parent.erase(y);
+            parent[y_index] = NO_PARENT;
         }
 
         // Set y as parent of x
-        left_child[y] = x;
-        parent[x] = y;
+        left_child[y_index] = x;
+        parent[x_index] = y;
 
         // fix ranges up from y
         updateRangesUp(y);
     }
 
     // Rotate x and its left child up (right-rotate)
-    void rotateRight(int x) {
-        if (x == -1) return;
+    void rotateRight(int x_value) {
+        // Convert from original value to internal ID
+        if (value_to_id.find(x_value) == value_to_id.end()) return;
+        int x = value_to_id[x_value];
 
-        auto left_it = left_child.find(x);
-        if (left_it == left_child.end()) return; // no left child
+        if (x == NO_PARENT || !exists(x)) return;
 
-        int y = left_it->second;
-        if (dummy_leaves.find(y) != dummy_leaves.end()) return; // can't rotate dummy
+        int y = getLeftChild(x);
+        if (y == NO_CHILD || isDummy(y)) return; // can't rotate dummy
 
         // Perform rotation logic
-        auto y_right_it = right_child.find(y);
-        int y_right = (y_right_it != right_child.end()) ? y_right_it->second : -1;
+        int y_right = getRightChild(y);
+        int x_parent = getParent(x);
 
         // Update x's left child
-        if (y_right != -1) {
-            left_child[x] = y_right;
-            parent[y_right] = x;
+        int x_index = (x >= 0) ? x : -x;
+        if (y_right != NO_CHILD) {
+            left_child[x_index] = y_right;
+            int y_right_index = (y_right >= 0) ? y_right : -y_right;
+            parent[y_right_index] = x;
         } else {
-            left_child.erase(x);
+            left_child[x_index] = NO_CHILD;
         }
 
         // Update y's parent
-        auto x_parent_it = parent.find(x);
-        if (x_parent_it != parent.end()) {
-            int x_parent = x_parent_it->second;
-            parent[y] = x_parent;
+        int y_index = (y >= 0) ? y : -y;
+        if (x_parent != NO_PARENT) {
+            parent[y_index] = x_parent;
+            int x_parent_index = (x_parent >= 0) ? x_parent : -x_parent;
 
-            auto x_parent_left_it = left_child.find(x_parent);
-            if (x_parent_left_it != left_child.end() && x_parent_left_it->second == x) {
-                left_child[x_parent] = y;
+            if (getLeftChild(x_parent) == x) {
+                left_child[x_parent_index] = y;
             } else {
-                right_child[x_parent] = y;
+                right_child[x_parent_index] = y;
             }
         } else {
             root = y;
-            parent.erase(y);
+            parent[y_index] = NO_PARENT;
         }
 
         // Set y as parent of x
-        right_child[y] = x;
-        parent[x] = y;
+        right_child[y_index] = x;
+        parent[x_index] = y;
 
         // fix ranges up from y
         updateRangesUp(y);
     }
 
     // Collect all parent->child edges into `out_set`
-    void collectEdges(int n,
+    void collectEdges(int node_id,
                       std::unordered_set<std::pair<int,int>, PairHash, PairEq>& out_set) const
     {
-        if (n == -1) return;
+        if (node_id == NO_PARENT || !exists(node_id)) return;
 
-        auto left_it = left_child.find(n);
-        if (left_it != left_child.end() && dummy_leaves.find(left_it->second) == dummy_leaves.end()) {
-            out_set.insert({n, left_it->second});
-            collectEdges(left_it->second, out_set);
+        // Convert back to original values for edge collection
+        int original_node = id_to_value.at(node_id);
+
+        int left = getLeftChild(node_id);
+        if (left != NO_CHILD && !isDummy(left)) {
+            int original_left = id_to_value.at(left);
+            out_set.insert({original_node, original_left});
+            collectEdges(left, out_set);
         }
 
-        auto right_it = right_child.find(n);
-        if (right_it != right_child.end() && dummy_leaves.find(right_it->second) == dummy_leaves.end()) {
-            out_set.insert({n, right_it->second});
-            collectEdges(right_it->second, out_set);
+        int right = getRightChild(node_id);
+        if (right != NO_CHILD && !isDummy(right)) {
+            int original_right = id_to_value.at(right);
+            out_set.insert({original_node, original_right});
+            collectEdges(right, out_set);
         }
     }
 
@@ -244,138 +283,183 @@ struct RangeTreeMap {
         std::cout << "\nRanges (original nodes only):\n";
 
         // Get all original nodes and sort them
-        std::vector<int> nodes_vec;
-        for (const auto& [node, range] : ranges) {
-            if (dummy_leaves.find(node) == dummy_leaves.end()) {
-                nodes_vec.push_back(node);
+        std::vector<int> original_values;
+        for (const auto& [id, value] : id_to_value) {
+            if (!isDummy(id)) {
+                original_values.push_back(value);
             }
         }
-        std::sort(nodes_vec.begin(), nodes_vec.end());
+        std::sort(original_values.begin(), original_values.end());
 
         // Print all original nodes
-        for (int node : nodes_vec) {
-            auto range = ranges.at(node);
-            std::cout << node << "(" << range.first << "," << range.second << ") ";
+        for (int value : original_values) {
+            int id = value_to_id.at(value);
+            auto range = getRange(id);
+            std::cout << value << "(" << range.first << "," << range.second << ") ";
         }
         std::cout << std::endl;
     }
 
-    // Helper functions for tree navigation
-    int getParent(int node) const {
-        auto it = parent.find(node);
-        return (it != parent.end()) ? it->second : -1;
-    }
-
-    int getLeftChild(int node) const {
-        auto it = left_child.find(node);
-        return (it != left_child.end()) ? it->second : -1;
-    }
-
-    int getRightChild(int node) const {
-        auto it = right_child.find(node);
-        return (it != right_child.end()) ? it->second : -1;
-    }
-
 private:
-    // Build leaves vector in left-to-right order
-    void buildLeavesVector(int node) {
-        if (node == -1) return;
+    void clear() {
+        ranges.clear();
+        parent.clear();
+        left_child.clear();
+        right_child.clear();
+        is_dummy.clear();
+        node_exists.clear();
+        position_in_inorder.clear();
+        leaves.clear();
+        original_inorder.clear();
+        value_to_id.clear();
+        id_to_value.clear();
+        root = NO_PARENT;
+        next_id = 0;
+        next_dummy_id = -1000;
+    }
 
-        auto left_it = left_child.find(node);
-        auto right_it = right_child.find(node);
+    // Create bidirectional mapping between original values and internal IDs
+    void createIdMapping(const std::vector<int>& preorder, const std::vector<int>& inorder) {
+        std::set<int> unique_values;
+        for (int val : preorder) unique_values.insert(val);
+        for (int val : inorder) unique_values.insert(val);
 
-        // If it's a leaf (no children), add to leaves
-        if (left_it == left_child.end() && right_it == right_child.end()) {
-            leaves.push_back(node);
-            return;
+        for (int value : unique_values) {
+            int id = next_id++;
+            value_to_id[value] = id;
+            id_to_value[id] = value;
         }
 
-        // Recursively build leaves in inorder
-        if (left_it != left_child.end()) {
-            buildLeavesVector(left_it->second);
+        // Resize vectors to accommodate all IDs plus dummy nodes
+        int max_size = next_id + 1000; // Extra space for dummy nodes
+        ranges.resize(max_size, {0, 0});
+        parent.resize(max_size, NO_PARENT);
+        left_child.resize(max_size, NO_CHILD);
+        right_child.resize(max_size, NO_CHILD);
+        is_dummy.resize(max_size, false);
+        node_exists.resize(max_size, false);
+        position_in_inorder.resize(max_size, -1);
+
+        // Mark original nodes as existing
+        for (const auto& [value, id] : value_to_id) {
+            node_exists[id] = true;
         }
-        if (right_it != right_child.end()) {
-            buildLeavesVector(right_it->second);
+    }
+
+    void convertToIds(const std::vector<int>& values, std::vector<int>& ids) {
+        ids.clear();
+        ids.reserve(values.size());
+        for (int value : values) {
+            ids.push_back(value_to_id[value]);
         }
     }
 
     // Build tree recursively
-    void buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
-                        int pre_start, int pre_end, int in_start, int in_end, int par) {
-        if (pre_start > pre_end || in_start > in_end) {
-            return;
-        }
+    void buildRecursive(const std::vector<int>& preorder_ids, const std::vector<int>& inorder_ids,
+                        int pre_start, int pre_end, int in_start, int in_end, int parent_id) {
+        if (pre_start > pre_end || in_start > in_end) return;
 
-        int root_val = preorder[pre_start];
+        int root_id = preorder_ids[pre_start];
 
         // Set parent relationship
-        if (par != -1) {
-            parent[root_val] = par;
+        if (parent_id != NO_PARENT) {
+            int root_index = (root_id >= 0) ? root_id : -root_id;
+            parent[root_index] = parent_id;
         }
 
-        // Find root position in inorder
-        int root_idx = -1;
-        for (int i = in_start; i <= in_end; i++) {
-            if (inorder[i] == root_val) {
-                root_idx = i;
-                break;
-            }
-        }
-
+        // Find root position in inorder - O(1) lookup instead of O(n) search!
+        int root_idx = position_in_inorder[root_id];
         int left_size = root_idx - in_start;
 
         // Build left subtree
         if (left_size > 0) {
-            int left_root = preorder[pre_start + 1];
-            left_child[root_val] = left_root;
-            buildRecursive(preorder, inorder,
-                           pre_start + 1, pre_start + left_size,
-                           in_start, root_idx - 1, root_val);
+            int left_root_id = preorder_ids[pre_start + 1];
+            int root_index = (root_id >= 0) ? root_id : -root_id;
+            left_child[root_index] = left_root_id;
+            buildRecursive(preorder_ids, inorder_ids, pre_start + 1, pre_start + left_size,
+                           in_start, root_idx - 1, root_id);
         }
 
         // Build right subtree
         if (root_idx < in_end) {
-            int right_root = preorder[pre_start + left_size + 1];
-            right_child[root_val] = right_root;
-            buildRecursive(preorder, inorder,
-                           pre_start + left_size + 1, pre_end,
-                           root_idx + 1, in_end, root_val);
+            int right_root_id = preorder_ids[pre_start + left_size + 1];
+            int root_index = (root_id >= 0) ? root_id : -root_id;
+            right_child[root_index] = right_root_id;
+            buildRecursive(preorder_ids, inorder_ids, pre_start + left_size + 1, pre_end,
+                           root_idx + 1, in_end, root_id);
         }
+    }
+
+    // Build leaves vector in left-to-right order
+    void buildLeavesVector(int node_id) {
+        if (node_id == NO_PARENT || !exists(node_id)) return;
+
+        int left = getLeftChild(node_id);
+        int right = getRightChild(node_id);
+
+        // If it's a leaf (no children), add to leaves
+        if (left == NO_CHILD && right == NO_CHILD) {
+            leaves.push_back(node_id);
+            return;
+        }
+
+        // Recursively build leaves in inorder
+        if (left != NO_CHILD) buildLeavesVector(left);
+        if (right != NO_CHILD) buildLeavesVector(right);
     }
 
     // Add dummy leaves to make every original node an inner node
     void addDummyLeaves() {
-        std::vector<int> original_nodes;
-
-        // Collect all original nodes
-        for (int node : original_inorder) {
-            original_nodes.push_back(node);
-        }
+        std::vector<int> original_nodes = original_inorder;
 
         // Add dummy leaves to nodes that don't have both children
-        for (int node : original_nodes) {
-            int left_child_node = getLeftChild(node);
-            int right_child_node = getRightChild(node);
+        for (int node_id : original_nodes) {
+            int left = getLeftChild(node_id);
+            int right = getRightChild(node_id);
 
             // Add dummy left child if missing
-            if (left_child_node == -1) {
-                int dummy_left = next_dummy_id--;
-                dummy_leaves.insert(dummy_left);
-                left_child[node] = dummy_left;
-                parent[dummy_left] = node;
+            if (left == NO_CHILD) {
+                int dummy_id = addDummyNode();
+                int node_index = (node_id >= 0) ? node_id : -node_id;
+                left_child[node_index] = dummy_id;
+                int dummy_index = (dummy_id >= 0) ? dummy_id : -dummy_id;
+                parent[dummy_index] = node_id;
             }
 
             // Add dummy right child if missing
-            if (right_child_node == -1) {
-                int dummy_right = next_dummy_id--;
-                dummy_leaves.insert(dummy_right);
-                right_child[node] = dummy_right;
-                parent[dummy_right] = node;
+            if (right == NO_CHILD) {
+                int dummy_id = addDummyNode();
+                int node_index = (node_id >= 0) ? node_id : -node_id;
+                right_child[node_index] = dummy_id;
+                int dummy_index = (dummy_id >= 0) ? dummy_id : -dummy_id;
+                parent[dummy_index] = node_id;
             }
         }
 
         // Recursively add dummy leaves to newly created inner nodes if needed
         addDummyLeavesRecursive();
+    }
+
+    int addDummyNode() {
+        int dummy_id = next_dummy_id--;
+
+        // Ensure vectors are large enough
+        int index = -dummy_id;
+        if (index >= ranges.size()) {
+            int new_size = index + 100;
+            ranges.resize(new_size, {0, 0});
+            parent.resize(new_size, NO_PARENT);
+            left_child.resize(new_size, NO_CHILD);
+            right_child.resize(new_size, NO_CHILD);
+            is_dummy.resize(new_size, false);
+            node_exists.resize(new_size, false);
+            position_in_inorder.resize(new_size, -1);
+        }
+
+        is_dummy[index] = true;
+        node_exists[index] = true;
+
+        return dummy_id;
     }
 
     // Recursively ensure all non-dummy nodes have two children
@@ -387,17 +471,14 @@ private:
             std::vector<int> nodes_to_check;
 
             // Collect all non-dummy nodes
-            for (const auto& [child, par] : parent) {
-                if (dummy_leaves.find(child) == dummy_leaves.end()) {
-                    nodes_to_check.push_back(child);
-                }
-                if (dummy_leaves.find(par) == dummy_leaves.end()) {
-                    nodes_to_check.push_back(par);
+            for (const auto& [value, id] : value_to_id) {
+                if (!isDummy(id)) {
+                    nodes_to_check.push_back(id);
                 }
             }
 
             // Add root if it exists
-            if (root != -1 && dummy_leaves.find(root) == dummy_leaves.end()) {
+            if (root != NO_PARENT && !isDummy(root)) {
                 nodes_to_check.push_back(root);
             }
 
@@ -405,27 +486,29 @@ private:
             std::sort(nodes_to_check.begin(), nodes_to_check.end());
             nodes_to_check.erase(std::unique(nodes_to_check.begin(), nodes_to_check.end()), nodes_to_check.end());
 
-            for (int node : nodes_to_check) {
-                if (dummy_leaves.find(node) != dummy_leaves.end()) continue;
+            for (int node_id : nodes_to_check) {
+                if (isDummy(node_id)) continue;
 
-                int left_child_node = getLeftChild(node);
-                int right_child_node = getRightChild(node);
+                int left = getLeftChild(node_id);
+                int right = getRightChild(node_id);
 
                 // Add dummy left child if missing
-                if (left_child_node == -1) {
-                    int dummy_left = next_dummy_id--;
-                    dummy_leaves.insert(dummy_left);
-                    left_child[node] = dummy_left;
-                    parent[dummy_left] = node;
+                if (left == NO_CHILD) {
+                    int dummy_id = addDummyNode();
+                    int node_index = (node_id >= 0) ? node_id : -node_id;
+                    left_child[node_index] = dummy_id;
+                    int dummy_index = (dummy_id >= 0) ? dummy_id : -dummy_id;
+                    parent[dummy_index] = node_id;
                     added_new_dummies = true;
                 }
 
                 // Add dummy right child if missing
-                if (right_child_node == -1) {
-                    int dummy_right = next_dummy_id--;
-                    dummy_leaves.insert(dummy_right);
-                    right_child[node] = dummy_right;
-                    parent[dummy_right] = node;
+                if (right == NO_CHILD) {
+                    int dummy_id = addDummyNode();
+                    int node_index = (node_id >= 0) ? node_id : -node_id;
+                    right_child[node_index] = dummy_id;
+                    int dummy_index = (dummy_id >= 0) ? dummy_id : -dummy_id;
+                    parent[dummy_index] = node_id;
                     added_new_dummies = true;
                 }
             }
@@ -433,60 +516,67 @@ private:
     }
 
     // TRUE O(1) range update for a single node (with dummy leaves)
-    void updateNodeRange(int node) {
-        if (dummy_leaves.find(node) != dummy_leaves.end()) {
+    void updateNodeRange(int node_id) {
+        int index = (node_id >= 0) ? node_id : -node_id;
+
+        if (isDummy(node_id)) {
             // Dummy leaves have empty ranges
-            ranges[node] = {0, 0};
+            ranges[index] = {0, 0};
             return;
         }
 
         // For inner nodes with dummy leaves, range calculation is O(1)
-        int left_child_node = getLeftChild(node);
-        int right_child_node = getRightChild(node);
+        int left = getLeftChild(node_id);
+        int right = getRightChild(node_id);
 
         // With dummy leaves, every original node is guaranteed to have both children
-        if (left_child_node == -1 || right_child_node == -1) {
+        if (left == NO_CHILD || right == NO_CHILD) {
             // This shouldn't happen with proper dummy leaf augmentation
-            ranges[node] = {position_map[node], position_map[node] + 1};
+            int pos = position_in_inorder[node_id];
+            ranges[index] = {pos, pos + 1};
             return;
         }
 
         // O(1) calculation: combine ranges from left and right children
-        auto left_range = ranges[left_child_node];
-        auto right_range = ranges[right_child_node];
+        auto left_range = getRange(left);
+        auto right_range = getRange(right);
+        int pos = position_in_inorder[node_id];
 
-        int start = std::min(left_range.first, position_map[node]);
-        int end = std::max(right_range.second, position_map[node] + 1);
+        int start = std::min(left_range.first, pos);
+        int end = std::max(right_range.second, pos + 1);
 
         // If left child is dummy, start from this node's position
-        if (dummy_leaves.find(left_child_node) != dummy_leaves.end()) {
-            start = position_map[node];
+        if (isDummy(left)) {
+            start = pos;
         }
 
         // If right child is dummy, end at this node's position + 1
-        if (dummy_leaves.find(right_child_node) != dummy_leaves.end()) {
-            end = position_map[node] + 1;
+        if (isDummy(right)) {
+            end = pos + 1;
         }
 
-        ranges[node] = {start, end};
+        ranges[index] = {start, end};
     }
 
     // Walk up from n to root, fixing ranges
-    void updateRangesUp(int n) {
-        while (n != -1) {
-            updateNodeRange(n);
-            auto parent_it = parent.find(n);
-            n = (parent_it != parent.end()) ? parent_it->second : -1;
+    void updateRangesUp(int node_id) {
+        while (node_id != NO_PARENT && exists(node_id)) {
+            updateNodeRange(node_id);
+            node_id = getParent(node_id);
         }
     }
 
     // Calculate ranges for all nodes - only called during initial build
     void calculateAllRanges() {
         ranges.clear();
+        ranges.resize(ranges.capacity(), {0, 0});
 
         // Initialize dummy leaf ranges (empty ranges)
-        for (int dummy : dummy_leaves) {
-            ranges[dummy] = {0, 0};
+        for (const auto& [value, id] : value_to_id) {
+            if (isDummy(id)) {
+                int index = (id >= 0) ? id : -id;
+                ranges[index] = {0, 0};
+            }
         }
 
         // Calculate ranges for original nodes in post-order (bottom-up)
@@ -494,27 +584,27 @@ private:
     }
 
     // Post-order traversal to calculate ranges bottom-up
-    void calculateRangesPostOrder(int node) {
-        if (node == -1) return;
+    void calculateRangesPostOrder(int node_id) {
+        if (node_id == NO_PARENT || !exists(node_id)) return;
 
-        int left_child_node = getLeftChild(node);
-        int right_child_node = getRightChild(node);
+        int left = getLeftChild(node_id);
+        int right = getRightChild(node_id);
 
         // Process children first (post-order)
-        if (left_child_node != -1) {
-            calculateRangesPostOrder(left_child_node);
+        if (left != NO_CHILD) {
+            calculateRangesPostOrder(left);
         }
-        if (right_child_node != -1) {
-            calculateRangesPostOrder(right_child_node);
+        if (right != NO_CHILD) {
+            calculateRangesPostOrder(right);
         }
 
         // Now calculate this node's range
-        updateNodeRange(node);
+        updateNodeRange(node_id);
     }
 };
 
-// Compute and print shared edges between two RangeTreeMap trees
-void getSharedEdges(const RangeTreeMap& A, const RangeTreeMap& B) {
+// Compute and print shared edges between two VectorRangeTreeMap trees
+void getSharedEdges(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
     // Collect edges of A
     std::unordered_set<std::pair<int,int>, PairHash, PairEq> edgesA;
     A.collectEdges(A.root, edgesA);
@@ -533,29 +623,31 @@ void getSharedEdges(const RangeTreeMap& A, const RangeTreeMap& B) {
 }
 
 int main() {
-    RangeTreeMap tree;
+    VectorRangeTreeMap tree;
 
-    struct TestCase { std::string name;
+    struct TestCase {
+        std::string name;
         std::vector<int> preorder;
         std::vector<int> inorder;
         int rotateAt;
-        bool doLeft; };
-
-    std::vector<TestCase> tests = {
-            {"Test 1: Simple 3-node, left-rotate at 2", {2,1,3}, {1,2,3}, 2, true},
-            {"Test 2: Right-chain of 4, left-rotate at 2", {1,2,3,4}, {1,2,3,4}, 2, true},
-            {"Test 3: Balanced 7-node, right-rotate at 6", {4,2,1,3,6,5,7}, {1,2,3,4,5,6,7}, 6, false}
+        bool doLeft;
     };
 
-    for(auto& tc: tests) {
+    std::vector<TestCase> tests = {
+            {"Test 1: Simple 3-node, left-rotate at 2",    {2, 1, 3},             {1, 2, 3},             2, true},
+            {"Test 2: Right-chain of 4, left-rotate at 2", {1, 2, 3, 4},          {1, 2, 3, 4},          2, true},
+            {"Test 3: Balanced 7-node, right-rotate at 6", {4, 2, 1, 3, 6, 5, 7}, {1, 2, 3, 4, 5, 6, 7}, 6, false}
+    };
+
+    for (auto &tc: tests) {
         std::cout << tc.name << "\n";
         tree.build(tc.preorder, tc.inorder);
         std::cout << "Before:\n";
         tree.printTreeStructure();
         tree.printLeaves();
         std::cout << "\n";
-        int x = tc.rotateAt; // In map version, we use the value directly
-        if(tc.doLeft) tree.rotateLeft(x); else tree.rotateRight(x);
+        int x = tc.rotateAt; // Use the original value directly
+        if (tc.doLeft) tree.rotateLeft(x); else tree.rotateRight(x);
         std::cout << "After:\n";
         tree.printTreeStructure();
         tree.printLeaves();
@@ -564,7 +656,7 @@ int main() {
 
     // Test 4: Multiple rotations on 7-node
     std::cout << "Test 4: Multiple rotations on 7-node\n";
-    tree.build({4,2,1,3,6,5,7}, {1,2,3,4,5,6,7});
+    tree.build({4, 2, 1, 3, 6, 5, 7}, {1, 2, 3, 4, 5, 6, 7});
     std::cout << "Original structure:\n";
     tree.printTreeStructure();
     tree.printLeaves();
@@ -578,7 +670,7 @@ int main() {
 
     // Test 5: rotateLeft on node with no right child
     std::cout << "Test 5: rotateLeft on leaf node (1)\n";
-    tree.build({2,1,3}, {1,2,3});
+    tree.build({2, 1, 3}, {1, 2, 3});
     std::cout << "Before (should be unchanged):\n";
     tree.printTreeStructure();
     tree.printLeaves();
@@ -592,9 +684,9 @@ int main() {
     // Test 6: Shared-edge detection between two trees
     std::cout << "Test 6: Shared edges between two trees\n";
     // Build a second tree to compare
-    RangeTreeMap tree2;
-    tree.build({4,2,6,5,7}, {2,4,5,6,7}); // Tree1
-    tree2.build({4,2,6,3,5}, {2,4,3,6,5}); // Tree2
+    VectorRangeTreeMap tree2;
+    tree.build({4, 2, 6, 5, 7}, {2, 4, 5, 6, 7}); // Tree1
+    tree2.build({4, 2, 6, 3, 5}, {2, 4, 3, 6, 5}); // Tree2
     std::cout << "Tree1 structure:\n";
     tree.printTreeStructure();
     tree.printLeaves();
@@ -605,11 +697,10 @@ int main() {
     getSharedEdges(tree, tree2);
 
     std::cout << "\n Additional Tests for shared edge\n\n";
-
     // Both trees empty
     {
         std::cout << "-- Case 1: Both trees empty --\n";
-        RangeTreeMap A, B;
+        VectorRangeTreeMap A, B;
         A.build({}, {});
         B.build({}, {});
         std::cout << "Tree A and B are both empty.\n";
@@ -617,11 +708,10 @@ int main() {
         getSharedEdges(A, B);
         std::cout << "\n";
     }
-
     // One tree empty, one nonempty
     {
         std::cout << "Case 2: One empty, one nonempty\n";
-        RangeTreeMap A, B;
+        VectorRangeTreeMap A, B;
         A.build({}, {});                    // A is empty
         B.build({1,2,3}, {2,1,3});          // B:   1
         //      / \
@@ -638,7 +728,7 @@ int main() {
     // Identical small tree
     {
         std::cout << "Case 3: Identical small tree\n";
-        RangeTreeMap A, B;
+        VectorRangeTreeMap A, B;
         A.build({2,1,3}, {1,2,3});  //      2
         //     / \
                                     //    1   3
@@ -654,7 +744,7 @@ int main() {
     // Same values, different shape
     {
         std::cout << "Case 4: Same values, different shape\n";
-        RangeTreeMap A, B;
+        VectorRangeTreeMap A, B;
         A.build({4,2,3,1}, {2,3,1,4});
         // Tree A:
         //    4
@@ -689,7 +779,7 @@ int main() {
     // Partial overlap deep inside
     {
         std::cout << "Case 5: Partial overlap deep inside\n";
-        RangeTreeMap A, B;
+        VectorRangeTreeMap A, B;
         A.build({5,3,1,8,7,9}, {1,3,5,7,8,9});
         // Tree A:
         //      5
