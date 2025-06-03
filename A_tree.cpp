@@ -28,7 +28,7 @@ struct PairEq {
 };
 
 struct VectorRangeTreeMap {
-    // Vector-based storage for MASSIVE performance improvement - O(1) access instead of O(log n) hash lookups
+    // Vector-based storage
     std::vector<std::pair<int, int>> ranges;  // index = node_id, value = (start, end) range
     std::vector<int> parent;                  // index = node_id, value = parent_id
     std::vector<int> left_child;              // index = node_id, value = left_child_id
@@ -88,7 +88,6 @@ struct VectorRangeTreeMap {
         calculateAllRanges();
     }
 
-    // ULTRA-FAST lookups - single array access, no hashing! O(1) guaranteed
     inline int getParent(int node_id) const {
         int index = (node_id >= 0) ? node_id : -node_id;
         return (index < parent.size()) ? parent[index] : NO_PARENT;
@@ -161,7 +160,7 @@ struct VectorRangeTreeMap {
 
         if (x == NO_PARENT || !exists(x)) return;
 
-        int y = getRightChild(x);  // Single array access!
+        int y = getRightChild(x);  // Single array access
         if (y == NO_CHILD || isDummy(y)) return; // can't rotate dummy
 
         // Perform rotation logic
@@ -198,7 +197,7 @@ struct VectorRangeTreeMap {
         left_child[y_index] = x;
         parent[x_index] = y;
 
-        // FIXED: Only update ranges for the two nodes involved in rotation
+        // Only update ranges for the two nodes involved in rotation
         updateNodeRange(x);  // Update x's range first (now child)
         updateNodeRange(y);  // Update y's range second (now parent)
     }
@@ -248,7 +247,7 @@ struct VectorRangeTreeMap {
         right_child[y_index] = x;
         parent[x_index] = y;
 
-        // FIXED: Only update ranges for the two nodes involved in rotation
+        // Only update ranges for the two nodes involved in rotation
         updateNodeRange(x);  // Update x's range first (now child)
         updateNodeRange(y);  // Update y's range second (now parent)
     }
@@ -369,7 +368,7 @@ private:
             parent[root_index] = parent_id;
         }
 
-        // Find root position in inorder - O(1) lookup instead of O(n) search!
+        // Find root position in inorder
         int root_idx = position_in_inorder[root_id];
         int left_size = root_idx - in_start;
 
@@ -517,7 +516,7 @@ private:
         }
     }
 
-    // TRUE O(1) range update for a single node (with dummy leaves)
+    // O(1) range update for a single node (with dummy leaves)
     void updateNodeRange(int node_id) {
         int index = (node_id >= 0) ? node_id : -node_id;
 
