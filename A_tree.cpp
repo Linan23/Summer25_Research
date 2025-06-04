@@ -31,6 +31,7 @@ struct VectorRangeTreeMap {
     // Professor's two-vector representation
     std::vector<std::pair<int, int>> ranges;  // ranges[node_value] = (start, end) range
     std::vector<std::pair<int, int>> edges;   // edges[node_value] = (left_child, right_child)
+    std::vector<int> parents;                 // parents[node_value] = parent_value
 
     int root;                                 // root node value
     int max_node_value;                      // maximum node value to size vectors
@@ -40,8 +41,9 @@ struct VectorRangeTreeMap {
     std::unordered_map<int, int> position_in_inorder; // node_value -> position in inorder
     std::unordered_set<int> original_nodes;  // set of original node values
 
-    // Constants for "no child" (dummy nodes)
+    // Constants for "no child" and "no parent" (dummy nodes)
     static constexpr int NO_CHILD = -1;
+    static constexpr int NO_PARENT = -1;
 
     VectorRangeTreeMap() : root(-1), max_node_value(0) {}
 
@@ -64,6 +66,7 @@ struct VectorRangeTreeMap {
         // Resize vectors - only need space for original nodes
         ranges.resize(max_node_value + 1, {0, 0});
         edges.resize(max_node_value + 1, {NO_CHILD, NO_CHILD});
+        parents.resize(max_node_value + 1, NO_PARENT);
 
         // Store original inorder
         original_inorder = inorder;
@@ -74,7 +77,7 @@ struct VectorRangeTreeMap {
         }
 
         root = preorder[0];
-        buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1);
+        buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, NO_PARENT);
 
         // Calculate ranges for all nodes
         calculateAllRanges();
@@ -92,23 +95,53 @@ struct VectorRangeTreeMap {
         return edges[node_value].second;
     }
 
+    // Get parent of a node (-1 if root/none)
+    inline int getParent(int node_value) const {
+        if (node_value < 0 || node_value >= parents.size()) return NO_PARENT;
+        return parents[node_value];
+    }
+
     // Get range of a node
     inline std::pair<int, int> getRange(int node_value) const {
         if (node_value < 0 || node_value >= ranges.size()) return {0, 0};
         return ranges[node_value];
     }
 
-    // Set left child
+    // Set left child and update parent pointers
     inline void setLeftChild(int node_value, int child_value) {
         if (node_value >= 0 && node_value < edges.size()) {
+            // Remove old parent relationship
+            int old_child = edges[node_value].first;
+            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size()) {
+                parents[old_child] = NO_PARENT;
+            }
+
+            // Set new child
             edges[node_value].first = child_value;
+
+            // Set new parent relationship
+            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size()) {
+                parents[child_value] = node_value;
+            }
         }
     }
 
-    // Set right child
+    // Set right child and update parent pointers
     inline void setRightChild(int node_value, int child_value) {
         if (node_value >= 0 && node_value < edges.size()) {
+            // Remove old parent relationship
+            int old_child = edges[node_value].second;
+            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size()) {
+                parents[old_child] = NO_PARENT;
+            }
+
+            // Set new child
             edges[node_value].second = child_value;
+
+            // Set new parent relationship
+            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size()) {
+                parents[child_value] = node_value;
+            }
         }
     }
 
@@ -123,8 +156,10 @@ struct VectorRangeTreeMap {
         if (node_value == NO_CHILD || !isOriginal(node_value)) return;
 
         auto range = getRange(node_value);
+        int parent = getParent(node_value);
         std::cout << indent << "Node " << node_value
-                  << " (range: " << range.first << ", " << range.second << ")\n";
+                  << " (range: " << range.first << ", " << range.second
+                  << ", parent: " << parent << ")\n";
 
         int left = getLeftChild(node_value);
         if (left != NO_CHILD && isOriginal(left)) {
@@ -146,6 +181,9 @@ struct VectorRangeTreeMap {
 
         // Get the right child of y (will become left child of x)
         int y_right = getRightChild(y);
+
+        // Get parent of x (y will take x's place)
+        int x_parent = getParent(x_value);
 
         // Store original ranges for professor's formula
         auto x_range = getRange(x_value);
@@ -170,9 +208,36 @@ struct VectorRangeTreeMap {
         }
         ranges[x_value] = new_x_range;
 
-        // Update edges: y takes x's position, x becomes right child of y
-        setLeftChild(x_value, y_right);  // x's left child becomes y's right child
-        setRightChild(y, x_value);       // y's right child becomes x
+        // Update parent relationships first, before changing edges
+        // y will take x's place, so y gets x's parent
+        parents[y] = x_parent;
+
+        // x becomes y's right child
+        parents[x_value] = y;
+
+        // y_right becomes x's left child (if it exists)
+        if (y_right != NO_CHILD && isOriginal(y_right)) {
+            parents[y_right] = x_value;
+        }
+
+        // Update edges:
+        // 1. x's left child becomes y's right child
+        edges[x_value].first = y_right;
+
+        // 2. y's right child becomes x
+        edges[y].second = x_value;
+
+        // 3. Update x's parent to point to y
+        if (x_parent != NO_PARENT) {
+            if (edges[x_parent].first == x_value) {
+                edges[x_parent].first = y;
+            } else {
+                edges[x_parent].second = y;
+            }
+        } else {
+            // x was the root, now y is the root
+            root = y;
+        }
     }
 
     // Left rotation at x using professor's algorithm
@@ -184,6 +249,9 @@ struct VectorRangeTreeMap {
 
         // Get the left child of y (will become right child of x)
         int y_left = getLeftChild(y);
+
+        // Get parent of x (y will take x's place)
+        int x_parent = getParent(x_value);
 
         // Store original ranges for professor's formula
         auto x_range = getRange(x_value);
@@ -207,9 +275,36 @@ struct VectorRangeTreeMap {
         }
         ranges[x_value] = new_x_range;
 
-        // Update edges: y takes x's position, x becomes left child of y
-        setRightChild(x_value, y_left);  // x's right child becomes y's left child
-        setLeftChild(y, x_value);        // y's left child becomes x
+        // Update parent relationships first, before changing edges
+        // y will take x's place, so y gets x's parent
+        parents[y] = x_parent;
+
+        // x becomes y's left child
+        parents[x_value] = y;
+
+        // y_left becomes x's right child (if it exists)
+        if (y_left != NO_CHILD && isOriginal(y_left)) {
+            parents[y_left] = x_value;
+        }
+
+        // Update edges:
+        // 1. x's right child becomes y's left child
+        edges[x_value].second = y_left;
+
+        // 2. y's left child becomes x
+        edges[y].first = x_value;
+
+        // 3. Update x's parent to point to y
+        if (x_parent != NO_PARENT) {
+            if (edges[x_parent].first == x_value) {
+                edges[x_parent].first = y;
+            } else {
+                edges[x_parent].second = y;
+            }
+        } else {
+            // x was the root, now y is the root
+            root = y;
+        }
     }
 
     // Collect all parent->child edges into `out_set` (only original nodes)
@@ -265,12 +360,26 @@ struct VectorRangeTreeMap {
             std::cout << "(" << left << "," << right << ")";
         }
         std::cout << "]\n";
+
+        std::cout << "parents: [";
+        for (size_t i = 0; i < sorted_original.size(); i++) {
+            if (i > 0) std::cout << ", ";
+            int node = sorted_original[i];
+            int parent = getParent(node);
+
+            // Convert non-original parent to -1
+            if (!isOriginal(parent)) parent = NO_PARENT;
+
+            std::cout << parent;
+        }
+        std::cout << "]\n";
     }
 
 private:
     void clear() {
         ranges.clear();
         edges.clear();
+        parents.clear();
         original_inorder.clear();
         position_in_inorder.clear();
         original_nodes.clear();
@@ -280,10 +389,13 @@ private:
 
     // Build tree recursively
     void buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
-                        int pre_start, int pre_end, int in_start, int in_end) {
+                        int pre_start, int pre_end, int in_start, int in_end, int parent_val) {
         if (pre_start > pre_end || in_start > in_end) return;
 
         int root_val = preorder[pre_start];
+
+        // Set parent
+        parents[root_val] = parent_val;
 
         // Find root position in inorder
         int root_idx = position_in_inorder[root_val];
@@ -294,7 +406,7 @@ private:
             int left_root_val = preorder[pre_start + 1];
             setLeftChild(root_val, left_root_val);
             buildRecursive(preorder, inorder, pre_start + 1, pre_start + left_size,
-                           in_start, root_idx - 1);
+                           in_start, root_idx - 1, root_val);
         }
 
         // Build right subtree
@@ -302,7 +414,7 @@ private:
             int right_root_val = preorder[pre_start + left_size + 1];
             setRightChild(root_val, right_root_val);
             buildRecursive(preorder, inorder, pre_start + left_size + 1, pre_end,
-                           root_idx + 1, in_end);
+                           root_idx + 1, in_end, root_val);
         }
     }
 
@@ -405,12 +517,6 @@ int main() {
     tree.print();
     std::cout << "\n";
 
-    // Another Left original tree and test left rotation at node 4
-    std::cout << "Another left rotation at node 4:\n";
-    tree.build(preorder, inorder);
-    tree.rotateLeft(4);
-    tree.print();
-    std::cout << "\n";
 
     return 0;
 }
