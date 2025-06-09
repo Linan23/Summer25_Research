@@ -307,7 +307,7 @@ struct VectorRangeTreeMap {
         }
     }
 
-    // Collect all parent->child edges into `out_set` (only original nodes)
+    // Collect all parent->child edges into out_set (only original nodes)
     void collectEdges(int node_value,
                       std::unordered_set<std::pair<int,int>, PairHash, PairEq>& out_set) const
     {
@@ -472,17 +472,18 @@ private:
     }
 };
 
-// Compute and print shared edges between two VectorRangeTreeMap trees
+/*
+// Comparison function Compute and print shared edges between two VectorRangeTreeMap trees 
 void getSharedEdges(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
-    // Collect edges of A
+    // Collect all parent→child pairs from tree A into a hash‐set 
     std::unordered_set<std::pair<int,int>, PairHash, PairEq> edgesA;
-    A.collectEdges(A.root, edgesA);
+    A.collectEdges(A.root, edgesA);  // uses collectEdges implementation
 
-    // Collect edges of B
+    // Same as previous
     std::unordered_set<std::pair<int,int>, PairHash, PairEq> edgesB;
-    B.collectEdges(B.root, edgesB);
+    B.collectEdges(B.root, edgesB);  // uses collectEdges implementation
 
-    // Print intersection
+    // For each (parent,child) in edgesA, check if it also appears in edgesB
     std::cout << "Shared edges (parent -> child):\n";
     for (auto& e : edgesA) {
         if (edgesB.count(e)) {
@@ -490,6 +491,108 @@ void getSharedEdges(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
         }
     }
 }
+*/
+
+// “By‐range” comparison instead of label‐comparison
+void getSharedEdgesByRange(
+    const VectorRangeTreeMap& A,
+    const VectorRangeTreeMap& B)
+{
+    // 1) Build a map in Tree A from (parentRange, childRange) → (parentLabel, childLabel)
+    //
+    //    We pack two intervals ((ps,pe),(cs,ce)) into a single key struct.
+    struct RangePair {
+        int ps, pe;   // parent range [start,end)
+        int cs, ce;   // child  range [start,end)
+        bool operator==(const RangePair& o) const {
+            return ps==o.ps && pe==o.pe
+                && cs==o.cs && ce==o.ce;
+        }
+    };
+
+    struct RangePairHash {
+        std::size_t operator()(const RangePair& r) const {
+            // Combine four 32‐bit ints into two 64‐bit values, then mix
+            uint64_t h1 = ((uint64_t)r.ps << 32) ^ (uint32_t)r.pe;
+            uint64_t h2 = ((uint64_t)r.cs << 32) ^ (uint32_t)r.ce;
+            // A basic “xor & std::hash” mix:
+            return std::hash<uint64_t>()(h1 ^ (h2 * 0x9e3779b97f4a7c15ULL));
+        }
+    };
+
+    // Map from RangePair → (parentLabel, childLabel) for Tree A
+    std::unordered_map<RangePair, std::pair<int,int>, RangePairHash> mapA;
+    mapA.reserve( A.original_nodes.size() * 2 );
+
+    // Recursively collect all edges p→c in A, storing their ranges:
+    std::function<void(int)> collectA = [&](int node) {
+        if (node < 0 || !A.isOriginal(node)) return;
+
+        auto pr = A.getRange(node);
+        int ps = pr.first, pe = pr.second;
+
+        int L = A.getLeftChild(node);
+        if (L != VectorRangeTreeMap::NO_CHILD && A.isOriginal(L)) {
+            auto cr = A.getRange(L);
+            RangePair key{ ps, pe, cr.first, cr.second };
+            mapA[key] = { node, L };
+            collectA(L);
+        }
+
+        int R = A.getRightChild(node);
+        if (R != VectorRangeTreeMap::NO_CHILD && A.isOriginal(R)) {
+            auto cr = A.getRange(R);
+            RangePair key{ ps, pe, cr.first, cr.second };
+            mapA[key] = { node, R };
+            collectA(R);
+        }
+    };
+    if (A.root != VectorRangeTreeMap::NO_CHILD) {
+        collectA(A.root);
+    }
+
+    // 2) Walk Tree B. For each edge q→d, form its (q.range,d.range) and look in mapA.
+    std::cout << "Shared edges (parent -> child) by RANGE:\n";
+
+    std::function<void(int)> collectB = [&](int node) {
+        if (node < 0 || !B.isOriginal(node)) return;
+
+        auto pr = B.getRange(node);
+        int ps = pr.first, pe = pr.second;
+
+        int L = B.getLeftChild(node);
+        if (L != VectorRangeTreeMap::NO_CHILD && B.isOriginal(L)) {
+            auto cr = B.getRange(L);
+            RangePair key{ ps, pe, cr.first, cr.second };
+            auto it = mapA.find(key);
+            if (it != mapA.end()) {
+                auto [pa, ca] = it->second;
+                std::cout << "A’s (" << pa << " -> " << ca << ")"
+                          << "  matches  "
+                          << "B’s (" << node << " -> " << L << ")\n";
+            }
+            collectB(L);
+        }
+
+        int R = B.getRightChild(node);
+        if (R != VectorRangeTreeMap::NO_CHILD && B.isOriginal(R)) {
+            auto cr = B.getRange(R);
+            RangePair key{ ps, pe, cr.first, cr.second };
+            auto it = mapA.find(key);
+            if (it != mapA.end()) {
+                auto [pa, ca] = it->second;
+                std::cout << "A’s (" << pa << " -> " << ca << ")"
+                          << "  matches  "
+                          << "B’s (" << node << " -> " << R << ")\n";
+            }
+            collectB(R);
+        }
+    };
+    if (B.root != VectorRangeTreeMap::NO_CHILD) {
+        collectB(B.root);
+    }
+}
+
 
 int main() {
     VectorRangeTreeMap tree;
@@ -499,24 +602,159 @@ int main() {
     std::vector<int> preorder = {8, 4, 2, 1, 0, 3, 6, 5, 7};
     std::vector<int> inorder = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
-    tree.build(preorder, inorder);
+    tree.build(preorder, inorder);  // buildRecursive is implemented above
     std::cout << "Initial tree:\n";
-    tree.print();
+    tree.print();  // print uses printTreeStructure and updateNodeRange
     std::cout << "\n";
 
     // Test right rotation at node 4
     std::cout << "Right rotation at node 4:\n";
-    tree.rotateRight(4);
-    tree.print();
+    tree.rotateRight(4);  // uses rotateRight implementation
+    tree.print();  
     std::cout << "\n";
 
     // Rebuild original tree and test left rotation at node 4
     std::cout << "Left rotation at node 4 (rebuilding original first):\n";
     tree.build(preorder, inorder);
-    tree.rotateLeft(4);
-    tree.print();
+    tree.rotateLeft(4);   // uses rotateLeft implementation
+    tree.print();  
     std::cout << "\n";
 
+    // --- Quick sanity check between two small trees ---
+    std::cout << "Test: Shared edges between two trees\n";
+    VectorRangeTreeMap tree1, tree2;
+    tree1.build({4,2,6,5,7}, {2,4,5,6,7});
+    tree2.build({4,2,6,3,5}, {2,4,3,6,5});
+    std::cout << "Tree1 structure:\n"; tree1.print(); std::cout << "\n";
+    std::cout << "Tree2 structure:\n"; tree2.print(); std::cout << "\n";
+    getSharedEdgesByRange(tree1, tree2);
+
+    std::cout << "Extra Unit tests for Comparison Method\n";
+
+    {
+        std::cout << "\n Case 1: Both trees empty \n";
+        VectorRangeTreeMap A, B;
+        A.build({}, {});
+        B.build({}, {});
+        std::cout << "Tree A and B are both empty.\n";
+        std::cout << "Shared edges (expected none):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 2: One empty, one nonempty \n";
+        VectorRangeTreeMap A, B;
+        A.build({}, {});                  // A is empty
+        B.build({1,2,3}, {2,1,3});        // B:  1
+                                          //     / \
+                                          //    2   3
+        std::cout << "Tree A (empty), Tree B:\n";
+        B.print();
+        std::cout << "Shared edges (expected none):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 3: Single-node trees \n";
+        VectorRangeTreeMap A, B;
+        A.build({42}, {42});    // only node 42
+        B.build({42}, {42});    // same single node
+        std::cout << "Tree A and Tree B (single node 42):\n";
+        A.print();
+        std::cout << "Shared edges (expected none):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        // false postive
+        std::cout << "\n Case 4: Disjoint value sets \n";
+        VectorRangeTreeMap A, B;
+        A.build({1,2,3}, {1,2,3});  // values {1,2,3}
+        B.build({4,5,6}, {4,5,6});  // values {4,5,6}
+        std::cout << "Tree A uses {1,2,3}, Tree B uses {4,5,6}.\n";
+        A.print(); std::cout << "\n"; 
+        B.print(); std::cout << "\n"; 
+        std::cout << "Shared edges (expected none):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 5: Same labels, different shape \n";
+        VectorRangeTreeMap A, B;
+        // A: 1→2→3→4 (right‐leaning chain)
+        A.build({1,2,3,4}, {1,2,3,4});
+        // B:     2
+        //       / \
+        //      1   3
+        //           \
+        //            4
+        B.build({2,1,3,4}, {1,2,3,4});
+        std::cout << "Tree A: right-leaning chain 1 - 2 - 3 - 4\n";
+        A.print(); std::cout << "\n";
+        std::cout << "Tree B: different shape, same labels\n";
+        B.print(); std::cout << "\n";
+        std::cout << "Shared edges (expected only “3-4”):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 6: Partial overlap deep in one subtree \n";
+        VectorRangeTreeMap A, B;
+        // A:
+        //     5
+        //    / \
+        //   3   8
+        //  /   / \
+        // 1   7   9
+        A.build({5,3,1,8,7,9}, {1,3,5,7,8,9});
+        // B:
+        //    5
+        //   / \
+        //  2   8
+        //     /
+        //    7
+        B.build({5,2,8,7}, {2,5,7,8});
+        std::cout << "Tree A:\n"; A.print(); std::cout << "\n";
+        std::cout << "Tree B:\n"; B.print(); std::cout << "\n";
+        std::cout << "Shared edges (expected none):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 7: Completely identical trees \n";
+        VectorRangeTreeMap A, B;
+        std::vector<int> Pre = {8,4,2,1,0,3,6,5,7};
+        std::vector<int> In  = {0,1,2,3,4,5,6,7,8};
+        A.build(Pre, In);
+        B.build(Pre, In);
+        std::cout << "Tree A and B are identical:\n";
+        A.print(); std::cout << "\n";
+        std::cout << "Shared edges (expected all 8 parent→child pairs):\n";
+        getSharedEdgesByRange(A, B);
+    }
+
+    {
+        std::cout << "\n Case 8: Larger random-like trees, small shared subtree \n";
+        VectorRangeTreeMap A, B;
+        // A:         10
+        //           /  \
+        //          5    15
+        //         / \   /
+        //        2   7 12
+        A.build({10,5,2,4,7,15,12}, {2,4,5,7,10,12,15});
+        // B:         7
+        //           /  \
+        //          5    10
+        //         /    /  \
+        //        2    -   15
+        //         \        \
+        //          4        12
+        B.build({7,5,2,4,10,15,12}, {2,4,5,7,10,12,15});
+        std::cout << "Tree A:\n"; A.print(); std::cout << "\n";
+        std::cout << "Tree B:\n"; B.print(); std::cout << "\n";
+        std::cout << "Shared edges (expected “2-4” and “15-12”):\n";
+        getSharedEdgesByRange(A, B);
+    }
 
     return 0;
 }
