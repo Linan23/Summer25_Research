@@ -1,29 +1,41 @@
 # Current Objectives: 
 
-**Tree Representation**  
-   - Decide how to store a binary tree:  
-     - As a linked structure (nodes with left/right pointers)  
-     - Or as an array (with parent/child indices)  
+Implement Brute Force Algorithm
 
-**Edge Rotations**  
-   - Apply rotations to any edge in the tree.  
+**Progress so far**  
+-- Implemented Helper Functions: TreeEquals, TreetoString, BFS(W/O Free edge logic)
+-- Basic testing to ensure code is working as expected
 
-**Overall Goal**  
-   - Given two binary trees, find the minimum number of flips (rotations) to turn one into the other.  
-   - Track which nodes/edges correspond between the start and end trees.  
+**Todo List**  
 
-**Skip Common Edges**  
-   - If an edge exists in both trees, don’t rotate it.  
-   - Two ways to detect common edges:  
-     1. **Complete the trees**  
-        - Add dummy leaves so every internal node has two children.  
-        - Label leaves uniquely, traverse, and compare edges directly.  
-     2. **Direct check**  
-        - Devise a method to spot matching edges without adding leaves.  
+-- Implement free edge shortcut
+--Dist function
+
 
 **Current Phase Question**  
-   > How can we use binary rotations to quickly flip edges and identify shared edges between two trees?  
+   Can 2 edges of the same range in different trees be left and right edges? 
+      - No, requires more evidence
 
-**Baseline Approach(ATM)**  
-   - Start with a brute-force rotation tester
-   - Measure its performance and use that as a reference before moving to FPT optimizations
+
+**Brute Force Algorithm Approach**  
+
+We compute FindRotationDistance(T₀,T₁) by calling
+
+Dist(Tₛ,Tₑ):
+
+If they’re identical, return 0.
+
+If we’ve seen this pair (cached by their leaf‐range signatures), return the memo
+
+If there’s a “free” edge e in Tₛ (rotating e inserts an edge already in Tₑ), do that rotation, split both trees along the new edge into two subtree pairs, and return the sum of Dist on each pair
+
+Otherwise fall back to BFSSearch, which does a level‐by‐level BFS of all single rotations (left‐rotate/right‐rotate at each node), stopping as soon as you either match Tₑ or hit a free edge (and recurse immediately)
+
+By memoizing on leaf‐range vectors and always peeling off free edges first (divide‐and‐conquer), with BFS only when necessary, you get an O*(cᵏ) FPT algorithm for rotation distance
+
+**Paper Research**
+
+
+
+
+
