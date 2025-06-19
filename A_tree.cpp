@@ -6,12 +6,17 @@
 #include <algorithm>
 #include <set>
 
+#include <sstream>
+#include <queue>
+#include <climits>
 /*
 Helper function that takes a (parent, child) pair and turns it into a single number so the hash-set can store it quickly.
 It mixes the two integers into one 64-bit value and runs the standard hash on it
 */
-struct PairHash {
-    size_t operator()(const std::pair<int,int>& p) const {
+struct PairHash
+{
+    size_t operator()(const std::pair<int, int> &p) const
+    {
         // Combine two 32-bit ints into one 64-bit for hashing
         return std::hash<long long>()(((long long)p.first << 32) ^ (unsigned long long)p.second);
     }
@@ -21,25 +26,28 @@ struct PairHash {
  Helper function to show how hash-set checks if two (parent, child) pairs are exactly the same.
  It returns true only if both the parent and the child values match.
  */
-struct PairEq {
-    bool operator()(const std::pair<int,int>& a, const std::pair<int,int>& b) const {
+struct PairEq
+{
+    bool operator()(const std::pair<int, int> &a, const std::pair<int, int> &b) const
+    {
         return a.first == b.first && a.second == b.second;
     }
 };
 
-struct VectorRangeTreeMap {
+struct VectorRangeTreeMap
+{
     // Professor's two-vector representation
-    std::vector<std::pair<int, int>> ranges;  // ranges[node_value] = (start, end) range
-    std::vector<std::pair<int, int>> edges;   // edges[node_value] = (left_child, right_child)
-    std::vector<int> parents;                 // parents[node_value] = parent_value
+    std::vector<std::pair<int, int>> ranges; // ranges[node_value] = (start, end) range
+    std::vector<std::pair<int, int>> edges;  // edges[node_value] = (left_child, right_child)
+    std::vector<int> parents;                // parents[node_value] = parent_value
 
-    int root;                                 // root node value
-    int max_node_value;                      // maximum node value to size vectors
+    int root;           // root node value
+    int max_node_value; // maximum node value to size vectors
 
     // Store the original inorder sequence for range calculations
     std::vector<int> original_inorder;
     std::unordered_map<int, int> position_in_inorder; // node_value -> position in inorder
-    std::unordered_set<int> original_nodes;  // set of original node values
+    std::unordered_set<int> original_nodes;           // set of original node values
 
     // Constants for "no child" and "no parent" (dummy nodes)
     static constexpr int NO_CHILD = -1;
@@ -48,14 +56,17 @@ struct VectorRangeTreeMap {
     VectorRangeTreeMap() : root(-1), max_node_value(0) {}
 
     // Build from preorder and inorder lists
-    void build(const std::vector<int>& preorder, const std::vector<int>& inorder) {
+    void build(const std::vector<int> &preorder, const std::vector<int> &inorder)
+    {
         // Clear previous data
         clear();
 
-        if (preorder.empty()) return;
+        if (preorder.empty())
+            return;
 
         // Store original nodes
-        for (int val : preorder) {
+        for (int val : preorder)
+        {
             original_nodes.insert(val);
         }
 
@@ -72,7 +83,8 @@ struct VectorRangeTreeMap {
         original_inorder = inorder;
 
         // Create position mapping from inorder sequence
-        for (size_t i = 0; i < inorder.size(); i++) {
+        for (size_t i = 0; i < inorder.size(); i++)
+        {
             position_in_inorder[inorder[i]] = i;
         }
 
@@ -84,35 +96,46 @@ struct VectorRangeTreeMap {
     }
 
     // Get left child of a node (-1 if dummy/none)
-    inline int getLeftChild(int node_value) const {
-        if (node_value < 0 || node_value >= edges.size()) return NO_CHILD;
+    inline int getLeftChild(int node_value) const
+    {
+        if (node_value < 0 || node_value >= edges.size())
+            return NO_CHILD;
         return edges[node_value].first;
     }
 
     // Get right child of a node (-1 if dummy/none)
-    inline int getRightChild(int node_value) const {
-        if (node_value < 0 || node_value >= edges.size()) return NO_CHILD;
+    inline int getRightChild(int node_value) const
+    {
+        if (node_value < 0 || node_value >= edges.size())
+            return NO_CHILD;
         return edges[node_value].second;
     }
 
     // Get parent of a node (-1 if root/none)
-    inline int getParent(int node_value) const {
-        if (node_value < 0 || node_value >= parents.size()) return NO_PARENT;
+    inline int getParent(int node_value) const
+    {
+        if (node_value < 0 || node_value >= parents.size())
+            return NO_PARENT;
         return parents[node_value];
     }
 
     // Get range of a node
-    inline std::pair<int, int> getRange(int node_value) const {
-        if (node_value < 0 || node_value >= ranges.size()) return {0, 0};
+    inline std::pair<int, int> getRange(int node_value) const
+    {
+        if (node_value < 0 || node_value >= ranges.size())
+            return {0, 0};
         return ranges[node_value];
     }
 
     // Set left child and update parent pointers
-    inline void setLeftChild(int node_value, int child_value) {
-        if (node_value >= 0 && node_value < edges.size()) {
+    inline void setLeftChild(int node_value, int child_value)
+    {
+        if (node_value >= 0 && node_value < edges.size())
+        {
             // Remove old parent relationship
             int old_child = edges[node_value].first;
-            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size()) {
+            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size())
+            {
                 parents[old_child] = NO_PARENT;
             }
 
@@ -120,18 +143,22 @@ struct VectorRangeTreeMap {
             edges[node_value].first = child_value;
 
             // Set new parent relationship
-            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size()) {
+            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size())
+            {
                 parents[child_value] = node_value;
             }
         }
     }
 
     // Set right child and update parent pointers
-    inline void setRightChild(int node_value, int child_value) {
-        if (node_value >= 0 && node_value < edges.size()) {
+    inline void setRightChild(int node_value, int child_value)
+    {
+        if (node_value >= 0 && node_value < edges.size())
+        {
             // Remove old parent relationship
             int old_child = edges[node_value].second;
-            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size()) {
+            if (old_child != NO_CHILD && old_child >= 0 && old_child < parents.size())
+            {
                 parents[old_child] = NO_PARENT;
             }
 
@@ -139,21 +166,26 @@ struct VectorRangeTreeMap {
             edges[node_value].second = child_value;
 
             // Set new parent relationship
-            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size()) {
+            if (child_value != NO_CHILD && child_value >= 0 && child_value < parents.size())
+            {
                 parents[child_value] = node_value;
             }
         }
     }
 
     // Check if node is original (exists in our node set)
-    inline bool isOriginal(int node_value) const {
+    inline bool isOriginal(int node_value) const
+    {
         return original_nodes.count(node_value) > 0;
     }
 
     // Print tree structure recursively (only original nodes)
-    void printTreeStructure(int node_value = -2, std::string indent = "") const {
-        if (node_value == -2) node_value = root; // Default to root on first call
-        if (node_value == NO_CHILD || !isOriginal(node_value)) return;
+    void printTreeStructure(int node_value = -2, std::string indent = "") const
+    {
+        if (node_value == -2)
+            node_value = root; // Default to root on first call
+        if (node_value == NO_CHILD || !isOriginal(node_value))
+            return;
 
         auto range = getRange(node_value);
         int parent = getParent(node_value);
@@ -162,22 +194,27 @@ struct VectorRangeTreeMap {
                   << ", parent: " << parent << ")\n";
 
         int left = getLeftChild(node_value);
-        if (left != NO_CHILD && isOriginal(left)) {
+        if (left != NO_CHILD && isOriginal(left))
+        {
             printTreeStructure(left, indent + "  L-");
         }
 
         int right = getRightChild(node_value);
-        if (right != NO_CHILD && isOriginal(right)) {
+        if (right != NO_CHILD && isOriginal(right))
+        {
             printTreeStructure(right, indent + "  R-");
         }
     }
 
     // Right rotation at x using professor's algorithm
-    void rotateRight(int x_value) {
-        if (x_value < 0 || x_value >= edges.size() || !isOriginal(x_value)) return;
+    void rotateRight(int x_value)
+    {
+        if (x_value < 0 || x_value >= edges.size() || !isOriginal(x_value))
+            return;
 
-        int y = getLeftChild(x_value);  // left child of x
-        if (y == NO_CHILD || !isOriginal(y)) return; // can't rotate if no left child
+        int y = getLeftChild(x_value); // left child of x
+        if (y == NO_CHILD || !isOriginal(y))
+            return; // can't rotate if no left child
 
         // Get the right child of y (will become left child of x)
         int y_right = getRightChild(y);
@@ -188,8 +225,7 @@ struct VectorRangeTreeMap {
         // Store original ranges for professor's formula
         auto x_range = getRange(x_value);
         auto y_range = getRange(y);
-        auto y_right_range = (y_right != NO_CHILD && isOriginal(y_right)) ?
-                             getRange(y_right) : std::make_pair(0, 0);
+        auto y_right_range = (y_right != NO_CHILD && isOriginal(y_right)) ? getRange(y_right) : std::make_pair(0, 0);
 
         // Professor's range update formula:
         // 1. y takes x's original range
@@ -199,10 +235,13 @@ struct VectorRangeTreeMap {
         // This is: (x_range - y_range) + y_right_range
         std::pair<int, int> new_x_range;
 
-        if (y_right != NO_CHILD && isOriginal(y_right)) {
+        if (y_right != NO_CHILD && isOriginal(y_right))
+        {
             // x gets what's left after removing y's range, plus y_right's range
             new_x_range = {y_right_range.first, x_range.second};
-        } else {
+        }
+        else
+        {
             // No right child of y, so x gets the remainder after y's range
             new_x_range = {y_range.second, x_range.second};
         }
@@ -216,7 +255,8 @@ struct VectorRangeTreeMap {
         parents[x_value] = y;
 
         // y_right becomes x's left child (if it exists)
-        if (y_right != NO_CHILD && isOriginal(y_right)) {
+        if (y_right != NO_CHILD && isOriginal(y_right))
+        {
             parents[y_right] = x_value;
         }
 
@@ -228,24 +268,33 @@ struct VectorRangeTreeMap {
         edges[y].second = x_value;
 
         // 3. Update x's parent to point to y
-        if (x_parent != NO_PARENT) {
-            if (edges[x_parent].first == x_value) {
+        if (x_parent != NO_PARENT)
+        {
+            if (edges[x_parent].first == x_value)
+            {
                 edges[x_parent].first = y;
-            } else {
+            }
+            else
+            {
                 edges[x_parent].second = y;
             }
-        } else {
+        }
+        else
+        {
             // x was the root, now y is the root
             root = y;
         }
     }
 
     // Left rotation at x using professor's algorithm
-    void rotateLeft(int x_value) {
-        if (x_value < 0 || x_value >= edges.size() || !isOriginal(x_value)) return;
+    void rotateLeft(int x_value)
+    {
+        if (x_value < 0 || x_value >= edges.size() || !isOriginal(x_value))
+            return;
 
-        int y = getRightChild(x_value);  // right child of x
-        if (y == NO_CHILD || !isOriginal(y)) return; // can't rotate if no right child
+        int y = getRightChild(x_value); // right child of x
+        if (y == NO_CHILD || !isOriginal(y))
+            return; // can't rotate if no right child
 
         // Get the left child of y (will become right child of x)
         int y_left = getLeftChild(y);
@@ -256,8 +305,7 @@ struct VectorRangeTreeMap {
         // Store original ranges for professor's formula
         auto x_range = getRange(x_value);
         auto y_range = getRange(y);
-        auto y_left_range = (y_left != NO_CHILD && isOriginal(y_left)) ?
-                            getRange(y_left) : std::make_pair(0, 0);
+        auto y_left_range = (y_left != NO_CHILD && isOriginal(y_left)) ? getRange(y_left) : std::make_pair(0, 0);
 
         // Professor's range update formula:
         // 1. y takes x's original range
@@ -266,10 +314,13 @@ struct VectorRangeTreeMap {
         // 2. x gets: x_original_range - y_original_range + y_left_range
         std::pair<int, int> new_x_range;
 
-        if (y_left != NO_CHILD && isOriginal(y_left)) {
+        if (y_left != NO_CHILD && isOriginal(y_left))
+        {
             // x gets from start to where y_left ends
             new_x_range = {x_range.first, y_left_range.second};
-        } else {
+        }
+        else
+        {
             // No left child of y, so x gets up to where y starts
             new_x_range = {x_range.first, y_range.first};
         }
@@ -283,7 +334,8 @@ struct VectorRangeTreeMap {
         parents[x_value] = y;
 
         // y_left becomes x's right child (if it exists)
-        if (y_left != NO_CHILD && isOriginal(y_left)) {
+        if (y_left != NO_CHILD && isOriginal(y_left))
+        {
             parents[y_left] = x_value;
         }
 
@@ -295,13 +347,19 @@ struct VectorRangeTreeMap {
         edges[y].first = x_value;
 
         // 3. Update x's parent to point to y
-        if (x_parent != NO_PARENT) {
-            if (edges[x_parent].first == x_value) {
+        if (x_parent != NO_PARENT)
+        {
+            if (edges[x_parent].first == x_value)
+            {
                 edges[x_parent].first = y;
-            } else {
+            }
+            else
+            {
                 edges[x_parent].second = y;
             }
-        } else {
+        }
+        else
+        {
             // x was the root, now y is the root
             root = y;
         }
@@ -309,66 +367,80 @@ struct VectorRangeTreeMap {
 
     // Collect all parent->child edges into out_set (only original nodes)
     void collectEdges(int node_value,
-                      std::unordered_set<std::pair<int,int>, PairHash, PairEq>& out_set) const
+                      std::unordered_set<std::pair<int, int>, PairHash, PairEq> &out_set) const
     {
-        if (node_value == NO_CHILD || !isOriginal(node_value)) return;
+        if (node_value == NO_CHILD || !isOriginal(node_value))
+            return;
 
         int left = getLeftChild(node_value);
-        if (left != NO_CHILD && isOriginal(left)) {
+        if (left != NO_CHILD && isOriginal(left))
+        {
             out_set.insert({node_value, left});
             collectEdges(left, out_set);
         }
 
         int right = getRightChild(node_value);
-        if (right != NO_CHILD && isOriginal(right)) {
+        if (right != NO_CHILD && isOriginal(right))
+        {
             out_set.insert({node_value, right});
             collectEdges(right, out_set);
         }
     }
 
     // Print ranges and edges in professor's format (only original nodes)
-    void print() const {
+    void print() const
+    {
         std::cout << "Tree structure:\n";
         printTreeStructure();
 
         // Print ranges for original nodes only, in sorted order
         std::vector<int> sorted_original;
-        for (int node : original_nodes) {
+        for (int node : original_nodes)
+        {
             sorted_original.push_back(node);
         }
         std::sort(sorted_original.begin(), sorted_original.end());
 
         std::cout << "\nranges: [";
-        for (size_t i = 0; i < sorted_original.size(); i++) {
-            if (i > 0) std::cout << ", ";
+        for (size_t i = 0; i < sorted_original.size(); i++)
+        {
+            if (i > 0)
+                std::cout << ", ";
             auto range = getRange(sorted_original[i]);
             std::cout << "(" << range.first << "," << range.second << ")";
         }
         std::cout << "]\n";
 
         std::cout << "edges: [";
-        for (size_t i = 0; i < sorted_original.size(); i++) {
-            if (i > 0) std::cout << ", ";
+        for (size_t i = 0; i < sorted_original.size(); i++)
+        {
+            if (i > 0)
+                std::cout << ", ";
             int node = sorted_original[i];
             int left = getLeftChild(node);
             int right = getRightChild(node);
 
             // Convert non-original children to -1
-            if (!isOriginal(left)) left = NO_CHILD;
-            if (!isOriginal(right)) right = NO_CHILD;
+            if (!isOriginal(left))
+                left = NO_CHILD;
+            if (!isOriginal(right))
+                right = NO_CHILD;
 
             std::cout << "(" << left << "," << right << ")";
         }
         std::cout << "]\n";
 
         std::cout << "parents: [";
-        for (size_t i = 0; i < sorted_original.size(); i++) {
-            if (i > 0) std::cout << ", ";
+        for (size_t i = 0; i < sorted_original.size(); i++)
+        {
+            if (i > 0)
+                std::cout << ", ";
             int node = sorted_original[i];
             int parent = getParent(node);
 
             // Convert non-original parent to -1
-            if (!isOriginal(parent)) parent = NO_PARENT;
+            if (!isOriginal(parent))
+                parent = NO_PARENT;
 
             std::cout << parent;
         }
@@ -376,7 +448,8 @@ struct VectorRangeTreeMap {
     }
 
 private:
-    void clear() {
+    void clear()
+    {
         ranges.clear();
         edges.clear();
         parents.clear();
@@ -388,9 +461,11 @@ private:
     }
 
     // Build tree recursively
-    void buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
-                        int pre_start, int pre_end, int in_start, int in_end, int parent_val) {
-        if (pre_start > pre_end || in_start > in_end) return;
+    void buildRecursive(const std::vector<int> &preorder, const std::vector<int> &inorder,
+                        int pre_start, int pre_end, int in_start, int in_end, int parent_val)
+    {
+        if (pre_start > pre_end || in_start > in_end)
+            return;
 
         int root_val = preorder[pre_start];
 
@@ -402,7 +477,8 @@ private:
         int left_size = root_idx - in_start;
 
         // Build left subtree
-        if (left_size > 0) {
+        if (left_size > 0)
+        {
             int left_root_val = preorder[pre_start + 1];
             setLeftChild(root_val, left_root_val);
             buildRecursive(preorder, inorder, pre_start + 1, pre_start + left_size,
@@ -410,7 +486,8 @@ private:
         }
 
         // Build right subtree
-        if (root_idx < in_end) {
+        if (root_idx < in_end)
+        {
             int right_root_val = preorder[pre_start + left_size + 1];
             setRightChild(root_val, right_root_val);
             buildRecursive(preorder, inorder, pre_start + left_size + 1, pre_end,
@@ -419,8 +496,10 @@ private:
     }
 
     // Calculate range for a single node based on its subtree span in inorder
-    void updateNodeRange(int node_value) {
-        if (node_value < 0 || node_value >= ranges.size() || !isOriginal(node_value)) return;
+    void updateNodeRange(int node_value)
+    {
+        if (node_value < 0 || node_value >= ranges.size() || !isOriginal(node_value))
+            return;
 
         int left = getLeftChild(node_value);
         int right = getRightChild(node_value);
@@ -433,12 +512,14 @@ private:
         int end = pos + 1;
 
         // Extend range to include children's ranges
-        if (left != NO_CHILD && isOriginal(left)) {
+        if (left != NO_CHILD && isOriginal(left))
+        {
             auto left_range = getRange(left);
             start = left_range.first;
         }
 
-        if (right != NO_CHILD && isOriginal(right)) {
+        if (right != NO_CHILD && isOriginal(right))
+        {
             auto right_range = getRange(right);
             end = right_range.second;
         }
@@ -447,23 +528,28 @@ private:
     }
 
     // Calculate ranges for all nodes - only called during initial build
-    void calculateAllRanges() {
+    void calculateAllRanges()
+    {
         // Calculate ranges for all nodes in post-order (bottom-up)
         calculateRangesPostOrder(root);
     }
 
     // Post-order traversal to calculate ranges bottom-up
-    void calculateRangesPostOrder(int node_value) {
-        if (node_value == NO_CHILD || !isOriginal(node_value)) return;
+    void calculateRangesPostOrder(int node_value)
+    {
+        if (node_value == NO_CHILD || !isOriginal(node_value))
+            return;
 
         int left = getLeftChild(node_value);
         int right = getRightChild(node_value);
 
         // Process children first (post-order)
-        if (left != NO_CHILD && isOriginal(left)) {
+        if (left != NO_CHILD && isOriginal(left))
+        {
             calculateRangesPostOrder(left);
         }
-        if (right != NO_CHILD && isOriginal(right)) {
+        if (right != NO_CHILD && isOriginal(right))
+        {
             calculateRangesPostOrder(right);
         }
 
@@ -473,45 +559,149 @@ private:
 };
 
 /*
-// Comparison function Compute and print shared edges between two VectorRangeTreeMap trees 
-void getSharedEdges(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
-    // Collect all parent→child pairs from tree A into a hash‐set 
-    std::unordered_set<std::pair<int,int>, PairHash, PairEq> edgesA;
-    A.collectEdges(A.root, edgesA);  // uses collectEdges implementation
+Method: Detects if two trees are the same
+Returns true iff A and B represent exactly the same tree on the same original nodes
+*/
+bool TreesEqual(const VectorRangeTreeMap &A,
+                const VectorRangeTreeMap &B)
+{
+    // Must have the same set of original node labels
+    if (A.original_nodes != B.original_nodes)
+        return false;
 
-    // Same as previous
-    std::unordered_set<std::pair<int,int>, PairHash, PairEq> edgesB;
-    B.collectEdges(B.root, edgesB);  // uses collectEdges implementation
+    // For each node, ranges + left/right child + parent must match
+    for (int v : A.original_nodes)
+    {
+        if (A.getRange(v) != B.getRange(v))
+            return false;
+        if (A.getLeftChild(v) != B.getLeftChild(v))
+            return false;
+        if (A.getRightChild(v) != B.getRightChild(v))
+            return false;
+        if (A.getParent(v) != B.getParent(v))
+            return false;
+    }
 
-    // For each (parent,child) in edgesA, check if it also appears in edgesB
-    std::cout << "Shared edges (parent -> child):\n";
-    for (auto& e : edgesA) {
-        if (edgesB.count(e)) {
-            std::cout << e.first << " -> " << e.second << "\n";
+    return true;
+}
+
+/*Method to serialize each tree into strings to use as hashkey in unordered_set(bfs)/map(memo)
+Produce a unique string representing T’s shape+ranges on its original nodes
+*/
+std::string treeToString(const VectorRangeTreeMap &T)
+{
+    // Grab & sort the original labels
+    std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
+    std::sort(nodes.begin(), nodes.end());
+
+    // Build a single string with fixed separators
+    std::ostringstream oss;
+    for (int v : nodes)
+    {                                  // node label
+        auto [rs, re] = T.getRange(v); // start/end of inorder range
+        // L,R are left/right child labels
+        int L = T.getLeftChild(v);
+        int R = T.getRightChild(v);
+        int P = T.getParent(v); // Parent label
+
+        // format: v,rs,re,L,R,P
+        oss << v << ','
+            << rs << ',' << re << ','
+            << L << ',' << R << ','
+            << P << ';';
+    }
+    return oss.str();
+}
+
+/* Simple bfs logic
+ Still need to implement remove free edge
+ */
+int BFSSearch(const VectorRangeTreeMap &T_s,
+              const VectorRangeTreeMap &T_e)
+{
+
+    // New condiditon: first check if they already match, zero rotations needed
+    if (TreesEqual(T_s, T_e))
+        return 0;
+    const std::string targetKey = treeToString(T_e);
+
+    std::queue<std::pair<VectorRangeTreeMap, int>> Q;
+    std::unordered_set<std::string> visited;
+
+    // start from T_s at distance 0
+    Q.push({T_s, 0});
+    visited.insert(treeToString(T_s));
+
+    while (!Q.empty())
+    {
+        auto [cur, dist] = Q.front();
+        Q.pop();
+        int nextDist = dist + 1;
+
+        // try every rotation
+        for (int v : cur.original_nodes)
+        {
+            // left‐rotation at v?
+            if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)
+            {
+                VectorRangeTreeMap tmp = cur;
+                tmp.rotateLeft(v);
+
+                if (TreesEqual(tmp, T_e)) // found it!
+                    return nextDist;
+
+                auto key = treeToString(tmp);
+                if (!visited.count(key))
+                {
+                    visited.insert(key);
+                    Q.push({std::move(tmp), nextDist});
+                }
+            }
+
+            // right‐rotation at v?
+            if (cur.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD)
+            {
+                VectorRangeTreeMap tmp = cur;
+                tmp.rotateRight(v);
+
+                if (TreesEqual(tmp, T_e))
+                    return nextDist;
+
+                auto key = treeToString(tmp);
+                if (!visited.count(key))
+                {
+                    visited.insert(key);
+                    Q.push({std::move(tmp), nextDist});
+                }
+            }
         }
     }
+
+    return INT_MAX; // shouldn’t happen if same node‐set
 }
-*/
 
 // “By‐range” comparison instead of label‐comparison
 void getSharedEdgesByRange(
-    const VectorRangeTreeMap& A,
-    const VectorRangeTreeMap& B)
+    const VectorRangeTreeMap &A,
+    const VectorRangeTreeMap &B)
 {
-    // 1) Build a map in Tree A from (parentRange, childRange) → (parentLabel, childLabel)
+    // Build a map in Tree A from (parentRange, childRange) → (parentLabel, childLabel)
     //
-    //    We pack two intervals ((ps,pe),(cs,ce)) into a single key struct.
-    struct RangePair {
-        int ps, pe;   // parent range [start,end)
-        int cs, ce;   // child  range [start,end)
-        bool operator==(const RangePair& o) const {
-            return ps==o.ps && pe==o.pe
-                && cs==o.cs && ce==o.ce;
+    //    We pack two intervals ((ps,pe),(cs,ce)) into a single key struct
+    struct RangePair
+    {
+        int ps, pe; // parent range [start,end)
+        int cs, ce; // child  range [start,end)
+        bool operator==(const RangePair &o) const
+        {
+            return ps == o.ps && pe == o.pe && cs == o.cs && ce == o.ce;
         }
     };
 
-    struct RangePairHash {
-        std::size_t operator()(const RangePair& r) const {
+    struct RangePairHash
+    {
+        std::size_t operator()(const RangePair &r) const
+        {
             // Combine four 32‐bit ints into two 64‐bit values, then mix
             uint64_t h1 = ((uint64_t)r.ps << 32) ^ (uint32_t)r.pe;
             uint64_t h2 = ((uint64_t)r.cs << 32) ^ (uint32_t)r.ce;
@@ -521,51 +711,60 @@ void getSharedEdgesByRange(
     };
 
     // Map from RangePair → (parentLabel, childLabel) for Tree A
-    std::unordered_map<RangePair, std::pair<int,int>, RangePairHash> mapA;
-    mapA.reserve( A.original_nodes.size() * 2 );
+    std::unordered_map<RangePair, std::pair<int, int>, RangePairHash> mapA;
+    mapA.reserve(A.original_nodes.size() * 2);
 
     // Recursively collect all edges p→c in A, storing their ranges:
-    std::function<void(int)> collectA = [&](int node) {
-        if (node < 0 || !A.isOriginal(node)) return;
+    std::function<void(int)> collectA = [&](int node)
+    {
+        if (node < 0 || !A.isOriginal(node))
+            return;
 
         auto pr = A.getRange(node);
         int ps = pr.first, pe = pr.second;
 
         int L = A.getLeftChild(node);
-        if (L != VectorRangeTreeMap::NO_CHILD && A.isOriginal(L)) {
+        if (L != VectorRangeTreeMap::NO_CHILD && A.isOriginal(L))
+        {
             auto cr = A.getRange(L);
-            RangePair key{ ps, pe, cr.first, cr.second };
-            mapA[key] = { node, L };
+            RangePair key{ps, pe, cr.first, cr.second};
+            mapA[key] = {node, L};
             collectA(L);
         }
 
         int R = A.getRightChild(node);
-        if (R != VectorRangeTreeMap::NO_CHILD && A.isOriginal(R)) {
+        if (R != VectorRangeTreeMap::NO_CHILD && A.isOriginal(R))
+        {
             auto cr = A.getRange(R);
-            RangePair key{ ps, pe, cr.first, cr.second };
-            mapA[key] = { node, R };
+            RangePair key{ps, pe, cr.first, cr.second};
+            mapA[key] = {node, R};
             collectA(R);
         }
     };
-    if (A.root != VectorRangeTreeMap::NO_CHILD) {
+    if (A.root != VectorRangeTreeMap::NO_CHILD)
+    {
         collectA(A.root);
     }
 
-    // 2) Walk Tree B. For each edge q→d, form its (q.range,d.range) and look in mapA.
+    // Walk Tree B. For each edge q→d, form its (q.range,d.range) and look in mapA
     std::cout << "Shared edges (parent -> child) by RANGE:\n";
 
-    std::function<void(int)> collectB = [&](int node) {
-        if (node < 0 || !B.isOriginal(node)) return;
+    std::function<void(int)> collectB = [&](int node)
+    {
+        if (node < 0 || !B.isOriginal(node))
+            return;
 
         auto pr = B.getRange(node);
         int ps = pr.first, pe = pr.second;
 
         int L = B.getLeftChild(node);
-        if (L != VectorRangeTreeMap::NO_CHILD && B.isOriginal(L)) {
+        if (L != VectorRangeTreeMap::NO_CHILD && B.isOriginal(L))
+        {
             auto cr = B.getRange(L);
-            RangePair key{ ps, pe, cr.first, cr.second };
+            RangePair key{ps, pe, cr.first, cr.second};
             auto it = mapA.find(key);
-            if (it != mapA.end()) {
+            if (it != mapA.end())
+            {
                 auto [pa, ca] = it->second;
                 std::cout << "A’s (" << pa << " -> " << ca << ")"
                           << "  matches  "
@@ -575,11 +774,13 @@ void getSharedEdgesByRange(
         }
 
         int R = B.getRightChild(node);
-        if (R != VectorRangeTreeMap::NO_CHILD && B.isOriginal(R)) {
+        if (R != VectorRangeTreeMap::NO_CHILD && B.isOriginal(R))
+        {
             auto cr = B.getRange(R);
-            RangePair key{ ps, pe, cr.first, cr.second };
+            RangePair key{ps, pe, cr.first, cr.second};
             auto it = mapA.find(key);
-            if (it != mapA.end()) {
+            if (it != mapA.end())
+            {
                 auto [pa, ca] = it->second;
                 std::cout << "A’s (" << pa << " -> " << ca << ")"
                           << "  matches  "
@@ -588,13 +789,16 @@ void getSharedEdgesByRange(
             collectB(R);
         }
     };
-    if (B.root != VectorRangeTreeMap::NO_CHILD) {
+    if (B.root != VectorRangeTreeMap::NO_CHILD)
+    {
         collectB(B.root);
     }
 }
 
+int main()
+{
 
-int main() {
+    /*
     VectorRangeTreeMap tree;
 
     // Test with professor's example: inorder [0,1,2,3,4,5,6,7,8]
@@ -610,14 +814,14 @@ int main() {
     // Test right rotation at node 4
     std::cout << "Right rotation at node 4:\n";
     tree.rotateRight(4);  // uses rotateRight implementation
-    tree.print();  
+    tree.print();
     std::cout << "\n";
 
     // Rebuild original tree and test left rotation at node 4
     std::cout << "Left rotation at node 4 (rebuilding original first):\n";
     tree.build(preorder, inorder);
     tree.rotateLeft(4);   // uses rotateLeft implementation
-    tree.print();  
+    tree.print();
     std::cout << "\n";
 
     // --- Quick sanity check between two small trees ---
@@ -672,8 +876,8 @@ int main() {
         A.build({1,2,3}, {1,2,3});  // values {1,2,3}
         B.build({4,5,6}, {4,5,6});  // values {4,5,6}
         std::cout << "Tree A uses {1,2,3}, Tree B uses {4,5,6}.\n";
-        A.print(); std::cout << "\n"; 
-        B.print(); std::cout << "\n"; 
+        A.print(); std::cout << "\n";
+        B.print(); std::cout << "\n";
         std::cout << "Shared edges (expected none):\n";
         getSharedEdgesByRange(A, B);
     }
@@ -754,6 +958,72 @@ int main() {
         std::cout << "Tree B:\n"; B.print(); std::cout << "\n";
         std::cout << "Shared edges (expected “2-4” and “15-12”):\n";
         getSharedEdgesByRange(A, B);
+    }
+    */
+
+    /* Testing if TreeEqual Method*/
+
+    // Two identical trees
+    VectorRangeTreeMap T1, T2;
+    std::vector<int> pre = {3, 1, 2, 5, 4};
+    std::vector<int> in = {1, 2, 3, 4, 5};
+    T1.build(pre, in);
+    T2.build(pre, in);
+
+    std::cout << "Test 1 (should be equal): "
+              << (TreesEqual(T1, T2) ? "PASS" : "FAIL")
+              << "\n";
+
+    // Test 2: two different‐shaped trees on same labels
+    VectorRangeTreeMap U1, U2;
+    // U1 is root=3, left=1–2, right=5–4
+    U1.build({3, 1, 2, 5, 4}, {1, 2, 3, 4, 5});
+    // U2 is a skewed chain: 1–2–3–4–5
+    U2.build({1, 2, 3, 4, 5}, {1, 2, 3, 4, 5});
+
+    std::cout << "Test 2 (should differ): "
+              << (!TreesEqual(U1, U2) ? "PASS" : "FAIL")
+              << "\n";
+
+    /*Quick test to make sure current bfs is working as expected*/
+
+    // Test 1: identical trees → distance 0
+    {
+        VectorRangeTreeMap A;
+        std::vector<int> pre = {2, 1, 3}, in = {1, 2, 3};
+        A.build(pre, in);
+
+        int d0 = BFSSearch(A, A);
+        std::cout << "Test 1 (identical): got " << d0
+                  << ", expected 0\n";
+    }
+
+    // Test 2: one rotation apart → distance 1
+    {
+        VectorRangeTreeMap A, B;
+        std::vector<int> pre = {2, 1, 3}, in = {1, 2, 3};
+        A.build(pre, in);
+        B = A;
+        B.rotateLeft(2); // now root=3, left child=2, left-child of 2 is 1
+
+        int d1 = BFSSearch(A, B);
+        std::cout << "Test 2 (one rotateLeft at 2): got " << d1
+                  << ", expected 1\n";
+    }
+
+    // Test 3: two rotations apart → distance 2
+    {
+        VectorRangeTreeMap A, D;
+        A.build({2, 1, 3, 4}, {1, 2, 3, 4});
+
+        // Build D by two real rotations
+        D = A;
+        D.rotateLeft(2); // Step 1: makes 3 the root
+        D.rotateLeft(3); // Step 2: makes 4 the root
+
+        int d2 = BFSSearch(A, D);
+        std::cout << "Test 3 (two real rotates): got " << d2
+                  << ", expected 2\n";
     }
 
     return 0;
