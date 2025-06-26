@@ -613,77 +613,36 @@ std::string treeToString(const VectorRangeTreeMap &T)
     return oss.str();
 }
 
-/* Simple bfs logic
- Still need to implement remove free edge
- */
-int BFSSearch(const VectorRangeTreeMap &T_s,
-              const VectorRangeTreeMap &T_e)
-{
+// Helper function to check if current tree has an edge with given ranges
+bool hasEdgeByRange(const VectorRangeTreeMap &tree,
+                    const std::pair<int,int> &parent_range,
+                    const std::pair<int,int> &child_range) {
+    std::function<bool(int)> search = [&](int node) -> bool {
+        if (node < 0 || !tree.isOriginal(node)) return false;
 
-    // New condiditon: first check if they already match, zero rotations needed
-    if (TreesEqual(T_s, T_e))
-        return 0;
-    const std::string targetKey = treeToString(T_e);
-
-    std::queue<std::pair<VectorRangeTreeMap, int>> Q;
-    std::unordered_set<std::string> visited;
-
-    // start from T_s at distance 0
-    Q.push({T_s, 0});
-    visited.insert(treeToString(T_s));
-
-    while (!Q.empty())
-    {
-        auto [cur, dist] = Q.front();
-        Q.pop();
-        int nextDist = dist + 1;
-
-        // try every rotation
-        for (int v : cur.original_nodes)
-        {
-            // left‐rotation at v?
-            if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)
-            {
-                VectorRangeTreeMap tmp = cur;
-                tmp.rotateLeft(v);
-
-                if (TreesEqual(tmp, T_e)) // found it!
-                    return nextDist;
-
-                auto key = treeToString(tmp);
-                if (!visited.count(key))
-                {
-                    visited.insert(key);
-                    Q.push({std::move(tmp), nextDist});
-                }
+        auto current_range = tree.getRange(node);
+        if (current_range == parent_range) {
+            int left = tree.getLeftChild(node);
+            if (left != VectorRangeTreeMap::NO_CHILD && tree.isOriginal(left)) {
+                if (tree.getRange(left) == child_range) return true;
             }
 
-            // right‐rotation at v?
-            if (cur.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD)
-            {
-                VectorRangeTreeMap tmp = cur;
-                tmp.rotateRight(v);
-
-                if (TreesEqual(tmp, T_e))
-                    return nextDist;
-
-                auto key = treeToString(tmp);
-                if (!visited.count(key))
-                {
-                    visited.insert(key);
-                    Q.push({std::move(tmp), nextDist});
-                }
+            int right = tree.getRightChild(node);
+            if (right != VectorRangeTreeMap::NO_CHILD && tree.isOriginal(right)) {
+                if (tree.getRange(right) == child_range) return true;
             }
         }
-    }
 
-    return INT_MAX; // shouldn’t happen if same node‐set
+        return search(tree.getLeftChild(node)) || search(tree.getRightChild(node));
+    };
+
+    return tree.root != VectorRangeTreeMap::NO_CHILD && search(tree.root);
 }
 
 // “By‐range” comparison instead of label‐comparison
 void getSharedEdgesByRange(
-    const VectorRangeTreeMap &A,
-    const VectorRangeTreeMap &B)
+        const VectorRangeTreeMap &A,
+        const VectorRangeTreeMap &B)
 {
     // Build a map in Tree A from (parentRange, childRange) → (parentLabel, childLabel)
     //
@@ -793,6 +752,254 @@ void getSharedEdgesByRange(
     {
         collectB(B.root);
     }
+}
+// Helper function to check if a tree has a free edge relative to target
+bool hasFreeEdge(const VectorRangeTreeMap &current, const VectorRangeTreeMap &target,
+                 int &free_node, bool &is_left_rotation) {
+    // Build set of all edges in target tree by range
+    std::unordered_set<std::string> target_edges;
+
+    std::function<void(int)> collectTargetEdges = [&](int node) {
+        if (node < 0 || !target.isOriginal(node)) return;
+
+        auto parent_range = target.getRange(node);
+
+        int left = target.getLeftChild(node);
+        if (left != VectorRangeTreeMap::NO_CHILD && target.isOriginal(left)) {
+            auto child_range = target.getRange(left);
+            std::string edge_key = std::to_string(parent_range.first) + "," +
+                                   std::to_string(parent_range.second) + "->" +
+                                   std::to_string(child_range.first) + "," +
+                                   std::to_string(child_range.second);
+            target_edges.insert(edge_key);
+            collectTargetEdges(left);
+        }
+
+        int right = target.getRightChild(node);
+        if (right != VectorRangeTreeMap::NO_CHILD && target.isOriginal(right)) {
+            auto child_range = target.getRange(right);
+            std::string edge_key = std::to_string(parent_range.first) + "," +
+                                   std::to_string(parent_range.second) + "->" +
+                                   std::to_string(child_range.first) + "," +
+                                   std::to_string(child_range.second);
+            target_edges.insert(edge_key);
+            collectTargetEdges(right);
+        }
+    };
+
+    if (target.root != VectorRangeTreeMap::NO_CHILD) {
+        collectTargetEdges(target.root);
+    }
+
+    // Check each possible rotation in current tree
+    for (int v : current.original_nodes) {
+        // Try left rotation at v
+        if (current.getRightChild(v) != VectorRangeTreeMap::NO_CHILD) {
+            VectorRangeTreeMap temp = current;
+            temp.rotateLeft(v);
+
+            // Check if any new edge matches target
+            std::function<bool(int)> checkNewEdges = [&](int node) -> bool {
+                if (node < 0 || !temp.isOriginal(node)) return false;
+
+                auto parent_range = temp.getRange(node);
+
+                int left = temp.getLeftChild(node);
+                if (left != VectorRangeTreeMap::NO_CHILD && temp.isOriginal(left)) {
+                    auto child_range = temp.getRange(left);
+                    std::string edge_key = std::to_string(parent_range.first) + "," +
+                                           std::to_string(parent_range.second) + "->" +
+                                           std::to_string(child_range.first) + "," +
+                                           std::to_string(child_range.second);
+                    if (target_edges.count(edge_key) &&
+                        !hasEdgeByRange(current, parent_range, child_range)) {
+                        return true;
+                    }
+                }
+
+                int right = temp.getRightChild(node);
+                if (right != VectorRangeTreeMap::NO_CHILD && temp.isOriginal(right)) {
+                    auto child_range = temp.getRange(right);
+                    std::string edge_key = std::to_string(parent_range.first) + "," +
+                                           std::to_string(parent_range.second) + "->" +
+                                           std::to_string(child_range.first) + "," +
+                                           std::to_string(child_range.second);
+                    if (target_edges.count(edge_key) &&
+                        !hasEdgeByRange(current, parent_range, child_range)) {
+                        return true;
+                    }
+                }
+
+                return checkNewEdges(left) || checkNewEdges(right);
+            };
+
+            if (temp.root != VectorRangeTreeMap::NO_CHILD && checkNewEdges(temp.root)) {
+                free_node = v;
+                is_left_rotation = true;
+                return true;
+            }
+        }
+
+        // Try right rotation at v
+        if (current.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD) {
+            VectorRangeTreeMap temp = current;
+            temp.rotateRight(v);
+
+            // Check if any new edge matches target (same logic as above)
+            std::function<bool(int)> checkNewEdges = [&](int node) -> bool {
+                if (node < 0 || !temp.isOriginal(node)) return false;
+
+                auto parent_range = temp.getRange(node);
+
+                int left = temp.getLeftChild(node);
+                if (left != VectorRangeTreeMap::NO_CHILD && temp.isOriginal(left)) {
+                    auto child_range = temp.getRange(left);
+                    std::string edge_key = std::to_string(parent_range.first) + "," +
+                                           std::to_string(parent_range.second) + "->" +
+                                           std::to_string(child_range.first) + "," +
+                                           std::to_string(child_range.second);
+                    if (target_edges.count(edge_key) &&
+                        !hasEdgeByRange(current, parent_range, child_range)) {
+                        return true;
+                    }
+                }
+
+                int right = temp.getRightChild(node);
+                if (right != VectorRangeTreeMap::NO_CHILD && temp.isOriginal(right)) {
+                    auto child_range = temp.getRange(right);
+                    std::string edge_key = std::to_string(parent_range.first) + "," +
+                                           std::to_string(parent_range.second) + "->" +
+                                           std::to_string(child_range.first) + "," +
+                                           std::to_string(child_range.second);
+                    if (target_edges.count(edge_key) &&
+                        !hasEdgeByRange(current, parent_range, child_range)) {
+                        return true;
+                    }
+                }
+
+                return checkNewEdges(left) || checkNewEdges(right);
+            };
+
+            if (temp.root != VectorRangeTreeMap::NO_CHILD && checkNewEdges(temp.root)) {
+                free_node = v;
+                is_left_rotation = false;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+
+// Forward declaration for mutual recursion
+int removeFreeEdge(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e);
+
+int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
+{
+    // Check if they already match, zero rotations needed
+    if (TreesEqual(T_s, T_e))
+        return 0;
+
+    // Check for free edge before starting BFS
+    int free_node;
+    bool is_left_rotation;
+    if (hasFreeEdge(T_s, T_e, free_node, is_left_rotation)) {
+        return removeFreeEdge(T_s, T_e);
+    }
+
+    const std::string targetKey = treeToString(T_e);
+
+    std::queue<std::pair<VectorRangeTreeMap, int>> Q;
+    std::unordered_set<std::string> visited;
+
+    // start from T_s at distance 0
+    Q.push({T_s, 0});
+    visited.insert(treeToString(T_s));
+
+    while (!Q.empty())
+    {
+        auto [cur, dist] = Q.front();
+        Q.pop();
+        int nextDist = dist + 1;
+
+        // try every rotation
+        for (int v : cur.original_nodes)
+        {
+            // left‐rotation at v?
+            if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)
+            {
+                VectorRangeTreeMap tmp = cur;
+                tmp.rotateLeft(v);
+
+                if (TreesEqual(tmp, T_e)) // found it!
+                    return nextDist;
+
+                // Check if tmp has a free edge relative to T_e
+                int tmp_free_node;
+                bool tmp_is_left_rotation;
+                if (hasFreeEdge(tmp, T_e, tmp_free_node, tmp_is_left_rotation)) {
+                    return nextDist + removeFreeEdge(tmp, T_e);
+                }
+
+                auto key = treeToString(tmp);
+                if (!visited.count(key))
+                {
+                    visited.insert(key);
+                    Q.push({std::move(tmp), nextDist});
+                }
+            }
+
+            // right‐rotation at v?
+            if (cur.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD)
+            {
+                VectorRangeTreeMap tmp = cur;
+                tmp.rotateRight(v);
+
+                if (TreesEqual(tmp, T_e))
+                    return nextDist;
+
+                // Check if tmp has a free edge relative to T_e
+                int tmp_free_node;
+                bool tmp_is_left_rotation;
+                if (hasFreeEdge(tmp, T_e, tmp_free_node, tmp_is_left_rotation)) {
+                    return nextDist + removeFreeEdge(tmp, T_e);
+                }
+
+                auto key = treeToString(tmp);
+                if (!visited.count(key))
+                {
+                    visited.insert(key);
+                    Q.push({std::move(tmp), nextDist});
+                }
+            }
+        }
+    }
+
+    return INT_MAX; // shouldn't happen if same node‐set
+}
+
+// Placeholder implementation for removeFreeEdge
+// This would need to be implemented based on your partitioning algorithm
+int removeFreeEdge(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e) {
+    // Step 1: Find and apply the free rotation
+    int free_node;
+    bool is_left_rotation;
+    if (!hasFreeEdge(T_s, T_e, free_node, is_left_rotation)) {
+        // No free edge found, fallback to regular BFS
+        return BFSSearch(T_s, T_e);
+    }
+
+    VectorRangeTreeMap T_bar_init = T_s;
+    if (is_left_rotation) {
+        T_bar_init.rotateLeft(free_node);
+    } else {
+        T_bar_init.rotateRight(free_node);
+    }
+
+    // TODO: Steps 2-4 would require implementing tree partitioning
+    // For now, return 1 + recursive call (this is a simplification)
+    return 1 + BFSSearch(T_bar_init, T_e);
 }
 
 int main()
