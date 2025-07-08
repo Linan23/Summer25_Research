@@ -5,16 +5,24 @@ Implement Brute Force Algorithm
 **Progress so far**  
 -- Implemented Helper Functions: TreeEquals, TreetoString, BFS(W/O Free edge logic)
 -- Basic testing to ensure code is working as expected
+-- Organizing file into cpp & header for better readability, accessability, optimization
+-- Implemented all basic functions of provided sudo code, with unit testing to verify correctness
 
 **Todo List**  
 
--- Implement free edge shortcut
---Dist function
+Some other detail functions to keep in mind....
+
+-- Scaling/Profiling 
+-- Optimize Range updates: perhaps incrementally update only affected path
+-- Harden Free-Edge Detection
+-- Memoization optimization??
+-- Additional Testing(eg empty trees,single nodes, skewed etc )
+
 
 
 **Current Phase Question**  
    Can 2 edges of the same range in different trees be left and right edges? 
-      - No, requires more evidence
+      - No
 
 
 **Brute Force Algorithm Approach**  
@@ -33,7 +41,7 @@ Otherwise fall back to BFSSearch, which does a level‐by‐level BFS of all sin
 
 By memoizing on leaf‐range vectors and always peeling off free edges first (divide‐and‐conquer), with BFS only when necessary, you get an O*(cᵏ) FPT algorithm for rotation distance
 
-**Paper Research**
+**Paper Algorithm**
 
 
 
