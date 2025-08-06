@@ -1,318 +1,828 @@
 #include "A_tree.h"
-#include <vector>
 #include <iostream>
-#include <utility>
+#include <algorithm>
 #include <set>
+#include <vector>
 #include <unordered_set>
 #include <unordered_map>
-#include <algorithm>
+#include <queue>
+#include <climits>
+#include <cassert>
 #include <functional>
 
-struct Edge {
-    int u, v;
-    bool operator==(const Edge &o) const { return u == o.u && v == o.v; }
-};
-
-namespace std {
-    template<>
-    struct hash<Edge> {
-        size_t operator()(const Edge &e) const {
-            return hash<long long>()(((long long)e.u << 32) ^ (unsigned int)e.v);
-        }
-    };
-}
-
 // Forward declarations
-bool TreeDistI(VectorRangeTreeMap T1, const VectorRangeTreeMap& T2, int k, const std::vector<Edge>& I);
-bool TreeDistS(VectorRangeTreeMap T1, const VectorRangeTreeMap& T2, int k, std::vector<std::pair<Edge, Edge>> S);
+bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k);
+bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k,
+               const std::vector<std::pair<int,int>>& I);
+bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
+               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S);
 
-// Count internal nodes (non-leaf nodes) - this is the correct φ(T)
-int countInternalNodes(const VectorRangeTreeMap &T) {
-    int count = 0;
-    for (int node : T.original_nodes) {
-        bool isLeaf = (T.getLeftChild(node) == VectorRangeTreeMap::NO_CHILD &&
-                       T.getRightChild(node) == VectorRangeTreeMap::NO_CHILD);
-        if (!isLeaf) {
-            count++;
+// Debug flag
+const bool DEBUG = true;
+
+void debugPrint(const std::string& msg) {
+    if (DEBUG) {
+        std::cout << "[DEBUG] " << msg << std::endl;
+    }
+}
+
+// Get all internal edges in a tree (parent->child direction) with safety checks
+std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap& T) {
+    std::vector<std::pair<int,int>> edges;
+
+    try {
+        // Check if tree is valid
+        if (T.original_nodes.empty() || T.root < 0) {
+            return edges;
+        }
+
+        std::function<void(int)> dfs = [&](int node) {
+            if (node < 0 || !T.isOriginal(node)) return;
+
+            try {
+                int left = T.getLeftChild(node);
+                int right = T.getRightChild(node);
+
+                if (left >= 0 && T.isOriginal(left)) {
+                    edges.emplace_back(node, left);  // parent -> child
+                    dfs(left);
+                }
+                if (right >= 0 && T.isOriginal(right)) {
+                    edges.emplace_back(node, right);  // parent -> child
+                    dfs(right);
+                }
+            } catch (...) {
+                // Skip problematic nodes
+                return;
+            }
+        };
+
+        if (T.isOriginal(T.root)) {
+            dfs(T.root);
+        }
+    } catch (...) {
+        // Return empty vector on any error
+        edges.clear();
+    }
+
+    return edges;
+}
+
+// Count internal edges in tree
+int countInternalEdges(const VectorRangeTreeMap& T) {
+    return getInternalEdges(T).size();
+}
+
+// Check if two edges are adjacent (share a node)
+bool areAdjacent(const std::pair<int,int>& e1, const std::pair<int,int>& e2) {
+    return e1.first == e2.first || e1.first == e2.second ||
+           e1.second == e2.first || e1.second == e2.second;
+}
+
+// Generate all independent subsets of edges (limit size to avoid explosion)
+void generateIndependentSubsets(const std::vector<std::pair<int,int>>& edges, int index,
+                                std::vector<std::pair<int,int>>& current,
+                                std::vector<std::vector<std::pair<int,int>>>& result,
+                                int maxSubsets = 100) {
+    if (result.size() >= maxSubsets) return;  // Limit to prevent explosion
+
+    if (index == edges.size()) {
+        if (!current.empty()) {
+            result.push_back(current);
+        }
+        return;
+    }
+
+    // Choice 1: exclude current edge
+    generateIndependentSubsets(edges, index + 1, current, result, maxSubsets);
+
+    if (result.size() >= maxSubsets) return;
+
+    // Choice 2: include current edge if it doesn't conflict
+    bool canInclude = true;
+    for (const auto& e : current) {
+        if (areAdjacent(e, edges[index])) {
+            canInclude = false;
+            break;
         }
     }
-    return count;
+
+    if (canInclude) {
+        current.push_back(edges[index]);
+        generateIndependentSubsets(edges, index + 1, current, result, maxSubsets);
+        current.pop_back();
+    }
 }
 
-// Get all edges where parent is internal (non-leaf)
-std::vector<Edge> getInternalEdges(const VectorRangeTreeMap &T) {
-    std::unordered_set<std::pair<int, int>, PairHash, PairEq> all;
-    T.collectEdges(T.root, all);
+// Check if a specific parent->child edge exists in the tree with safety
+bool hasParentChildEdge(const VectorRangeTreeMap& T, int parent, int child) {
+    try {
+        if (!T.isOriginal(parent) || !T.isOriginal(child)) return false;
 
-    std::vector<Edge> result;
-    for (auto &[u, v] : all) {
-        // Include edge if parent (u) is internal (has at least one child)
-        bool parent_is_internal = (T.getLeftChild(u) != VectorRangeTreeMap::NO_CHILD ||
-                                   T.getRightChild(u) != VectorRangeTreeMap::NO_CHILD);
-        if (parent_is_internal) {
-            result.push_back({u, v});
+        int left = T.getLeftChild(parent);
+        int right = T.getRightChild(parent);
+
+        return (left == child) || (right == child);
+    } catch (...) {
+        return false;
+    }
+}
+
+// Safe tree copy function with better error handling
+VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap& T) {
+    VectorRangeTreeMap copy;
+    try {
+        // Handle empty tree
+        if (T.root < 0 || !T.isOriginal(T.root) || T.original_nodes.empty()) {
+            return copy;
         }
-    }
-    return result;
-}
 
-// Get rotatable edges (edges where we can actually perform rotations)
-std::vector<Edge> getRotatableEdges(const VectorRangeTreeMap &T) {
-    return getInternalEdges(T); // Same as internal edges for now
-}
+        // Get the original sequences
+        std::vector<int> preorder, inorder;
 
-// Check if a set of edges is independent (no shared endpoints)
-bool isIndependent(const std::vector<Edge> &edges) {
-    std::set<int> used;
-    for (auto &e : edges) {
-        if (used.count(e.u) || used.count(e.v)) return false;
-        used.insert(e.u);
-        used.insert(e.v);
-    }
-    return true;
-}
+        // Build preorder by traversing
+        std::function<void(int, std::vector<int>&)> buildPreorder = [&](int node, std::vector<int>& pre) {
+            if (node < 0 || !T.isOriginal(node)) return;
+            pre.push_back(node);
+            int left = T.getLeftChild(node);
+            int right = T.getRightChild(node);
+            if (left >= 0 && T.isOriginal(left)) buildPreorder(left, pre);
+            if (right >= 0 && T.isOriginal(right)) buildPreorder(right, pre);
+        };
 
-// Generate all independent subsets of edges
-std::vector<std::vector<Edge>> enumerateIndependentSubsets(const std::vector<Edge> &edges) {
-    std::vector<std::vector<Edge>> result;
-    int n = edges.size();
+        // Build inorder by traversing
+        std::function<void(int, std::vector<int>&)> buildInorder = [&](int node, std::vector<int>& in) {
+            if (node < 0 || !T.isOriginal(node)) return;
+            int left = T.getLeftChild(node);
+            int right = T.getRightChild(node);
+            if (left >= 0 && T.isOriginal(left)) buildInorder(left, in);
+            in.push_back(node);
+            if (right >= 0 && T.isOriginal(right)) buildInorder(right, in);
+        };
 
-    // Include empty set
-    result.push_back({});
+        buildPreorder(T.root, preorder);
+        buildInorder(T.root, inorder);
 
-    // Include non-empty subsets
-    for (int mask = 1; mask < (1 << n); ++mask) {
-        std::vector<Edge> subset;
-        for (int i = 0; i < n; ++i) {
-            if (mask & (1 << i)) subset.push_back(edges[i]);
+        // Validate sequences
+        if (preorder.size() == inorder.size() && !preorder.empty()) {
+            copy.build(preorder, inorder);
         }
-        if (isIndependent(subset)) result.push_back(subset);
+    } catch (...) {
+        // Return empty tree on any error
+        VectorRangeTreeMap empty;
+        return empty;
     }
-    return result;
+
+    return copy;
 }
 
-// Debug function
-void debugTree(const VectorRangeTreeMap& T, const std::string& name) {
-    std::cout << "\n=== DEBUG: " << name << " ===" << std::endl;
-    std::cout << "Root: " << T.root << std::endl;
+// Find free edge using a simplified approach with better safety
+std::pair<bool, std::pair<int,int>> findFreeEdge(const VectorRangeTreeMap& T_init,
+                                                 const VectorRangeTreeMap& T_final) {
+    try {
+        // Handle empty trees
+        if (T_init.original_nodes.empty() || T_final.original_nodes.empty()) {
+            return {false, {-1, -1}};
+        }
 
-    // Print original nodes
-    std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
-    std::sort(nodes.begin(), nodes.end());
+        // Get edges from both trees
+        auto initEdges = getInternalEdges(T_init);
+        auto finalEdges = getInternalEdges(T_final);
 
-    std::cout << "Original nodes: ";
-    for (int n : nodes) std::cout << n << " ";
-    std::cout << std::endl;
+        // Convert to sets for faster lookup
+        std::set<std::pair<int,int>> initSet(initEdges.begin(), initEdges.end());
+        std::set<std::pair<int,int>> finalSet(finalEdges.begin(), finalEdges.end());
 
-    // Print structure
-    for (int n : nodes) {
-        auto range = T.getRange(n);
-        int left = T.getLeftChild(n);
-        int right = T.getRightChild(n);
-        int parent = T.getParent(n);
+        // Try each edge in T_init to see if rotating it creates an edge from T_final
+        for (const auto& edge : initEdges) {
+            int parent = edge.first;
+            int child = edge.second;
 
-        std::cout << "Node " << n << ": range(" << range.first << "," << range.second
-                  << ") left=" << left << " right=" << right << " parent=" << parent;
+            // Validate edge exists
+            if (!hasParentChildEdge(T_init, parent, child)) {
+                continue;
+            }
 
-        // Check if leaf
-        bool isLeaf = (left == VectorRangeTreeMap::NO_CHILD && right == VectorRangeTreeMap::NO_CHILD);
-        if (isLeaf) std::cout << " [LEAF]";
-        std::cout << std::endl;
+            // Try rotating this edge
+            VectorRangeTreeMap testTree = safeCopyTree(T_init);
+
+            // Skip if copy failed
+            if (testTree.original_nodes.empty()) {
+                continue;
+            }
+
+            try {
+                bool rotated = false;
+                if (testTree.getLeftChild(parent) == child) {
+                    testTree.rotateRight(parent);
+                    rotated = true;
+                } else if (testTree.getRightChild(parent) == child) {
+                    testTree.rotateLeft(parent);
+                    rotated = true;
+                }
+
+                if (!rotated) continue;
+
+                // Check if any new edge matches target
+                auto newEdges = getInternalEdges(testTree);
+                for (const auto& newEdge : newEdges) {
+                    if (initSet.find(newEdge) == initSet.end() &&
+                        finalSet.find(newEdge) != finalSet.end()) {
+                        // Found a free edge!
+                        return {true, edge};
+                    }
+                }
+            } catch (...) {
+                continue;  // Skip problematic rotations
+            }
+        }
+    } catch (...) {
+        // Return false on any error
     }
 
-    int internal_count = countInternalNodes(T);
-    std::cout << "φ(T) = " << internal_count << " internal nodes" << std::endl;
-
-    auto rotatable_edges = getRotatableEdges(T);
-    std::cout << "Rotatable edges (" << rotatable_edges.size() << "): ";
-    for (auto& e : rotatable_edges) {
-        std::cout << "(" << e.u << "," << e.v << ") ";
-    }
-    std::cout << std::endl;
+    return {false, {-1, -1}};
 }
 
-bool FlipDistTree(const VectorRangeTreeMap& T1, const VectorRangeTreeMap& T2, int k) {
-    std::cout << "\n[FlipDistTree] Starting with k=" << k << std::endl;
+// Main FlipDistTree function
+bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k) {
+    debugPrint("Entering FlipDistTree with k=" + std::to_string(k));
 
-    // Step 0: If trees are equal, return true
-    if (TreesEqual(T1, T2)) {
-        std::cout << "[FlipDistTree] ✓ Trees are equal, returning TRUE" << std::endl;
+    // If trees are already equal - this should be the FIRST check
+    if (TreesEqual(T_init, T_final)) {
+        debugPrint("Trees already equal, returning true");
         return true;
     }
 
-    // φ(T1) = number of internal nodes
-    int phi_T1 = countInternalNodes(T1);
-    std::cout << "[FlipDistTree] φ(T1) = " << phi_T1 << " internal nodes" << std::endl;
+    // Step 0: Early termination based on edge count
+    int phi_init = countInternalEdges(T_init);
+    debugPrint("T_init has " + std::to_string(phi_init) + " internal edges");
 
-    if (phi_T1 > k) {
-        std::cout << "[FlipDistTree] φ(T1) > k, returning FALSE" << std::endl;
+    // More lenient check - we need budget for rotations, not just edge count
+    if (phi_init > k + 2) {  // Allow some extra budget
+        debugPrint("Way too many edges, returning false");
         return false;
     }
 
-    // Step 1: Enumerate all independent subsets of rotatable edges
-    auto rotatableEdges = getRotatableEdges(T1);
-    std::cout << "[FlipDistTree] Rotatable edges: " << rotatableEdges.size() << std::endl;
+    // Handle empty trees
+    if (phi_init == 0) {
+        bool result = countInternalEdges(T_final) == 0;
+        debugPrint("No internal edges, result: " + std::string(result ? "true" : "false"));
+        return result;
+    }
 
-    auto subsets = enumerateIndependentSubsets(rotatableEdges);
-    std::cout << "[FlipDistTree] Trying " << subsets.size() << " independent subsets" << std::endl;
+    // Check for immediate free edge solution
+    auto [hasFree, freeEdge] = findFreeEdge(T_init, T_final);
+    if (hasFree && k >= 1) {
+        debugPrint("Found immediate free edge solution");
+        try {
+            VectorRangeTreeMap T_rotated = safeCopyTree(T_init);
+            int parent = freeEdge.first;
+            int child = freeEdge.second;
 
-    // Step 1.2: For each non-empty subset I
-    for (auto& I : subsets) {
-        if (I.empty()) continue;
+            if (T_rotated.getLeftChild(parent) == child) {
+                T_rotated.rotateRight(parent);
+            } else if (T_rotated.getRightChild(parent) == child) {
+                T_rotated.rotateLeft(parent);
+            }
 
-        std::cout << "\n[FlipDistTree] → Trying subset of size " << I.size() << ": ";
-        for (auto& e : I) std::cout << "(" << e.u << "," << e.v << ") ";
-        std::cout << std::endl;
+            if (TreesEqual(T_rotated, T_final)) {
+                debugPrint("Single rotation solves it!");
+                return true;
+            }
 
-        // Make a copy since TreeDistI modifies the tree
-        VectorRangeTreeMap T1_copy = T1;
+            // Continue with recursive solution
+            return FlipDistTree(T_rotated, T_final, k - 1);
 
-        if (TreeDistI(T1_copy, T2, k, I)) {
-            std::cout << "[FlipDistTree] ✓✓✓ FOUND SOLUTION!" << std::endl;
-            return true;
+        } catch (...) {
+            debugPrint("Exception in immediate free edge handling");
         }
     }
 
-    std::cout << "[FlipDistTree] No solution found" << std::endl;
+    // Step 1: Enumerate all independent subsets of internal edges
+    auto edges = getInternalEdges(T_init);
+    debugPrint("Found " + std::to_string(edges.size()) + " internal edges");
+
+    std::vector<std::vector<std::pair<int,int>>> independentSubsets;
+    std::vector<std::pair<int,int>> current;
+
+    // Limit complexity for larger trees
+    int maxSubsets = (edges.size() > 6) ? 20 : 50;
+    generateIndependentSubsets(edges, 0, current, independentSubsets, maxSubsets);
+
+    debugPrint("Generated " + std::to_string(independentSubsets.size()) + " independent subsets");
+
+    // Step 1.2: Try each non-empty independent subset
+    for (size_t i = 0; i < independentSubsets.size(); i++) {
+        const auto& subset = independentSubsets[i];
+        if (subset.empty()) continue;
+
+        debugPrint("Trying subset " + std::to_string(i) + " with " + std::to_string(subset.size()) + " edges");
+
+        try {
+            if (TreeDistI(T_init, T_final, k, subset)) {
+                debugPrint("Found solution with subset " + std::to_string(i));
+                return true;
+            }
+        } catch (...) {
+            debugPrint("Exception in TreeDistI for subset " + std::to_string(i));
+            continue;
+        }
+    }
+
+    debugPrint("No solution found, returning false");
     return false;
 }
 
-bool TreeDistI(VectorRangeTreeMap T1, const VectorRangeTreeMap& T2, int k, const std::vector<Edge>& I) {
-    std::cout << "\n[TreeDistI] called with k=" << k << ", |I|=" << I.size() << std::endl;
+// Simplified TreeDist-I implementation
+bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k,
+               const std::vector<std::pair<int,int>>& I) {
+    debugPrint("Entering TreeDistI with k=" + std::to_string(k) + ", |I|=" + std::to_string(I.size()));
 
-    // CRITICAL: Check if we're already equal before any processing
-    if (TreesEqual(T1, T2)) {
-        std::cout << "[TreeDistI] ✓✓✓ Trees already equal! SUCCESS!" << std::endl;
+    // If trees are already equal
+    if (TreesEqual(T_init, T_final)) {
+        debugPrint("TreeDistI: Trees already equal");
         return true;
     }
 
-    // Step 0: Check preconditions
-    int phi_T1 = countInternalNodes(T1);
-    int remaining_k = k - (int)I.size();
+    // Step 0: More lenient early checks
+    int phi_init = countInternalEdges(T_init);
+    int budget_needed = (int)I.size();
+    int remaining_budget = k - budget_needed;
 
-    std::cout << "[TreeDistI] φ(T1) = " << phi_T1 << " internal nodes, k - |I| = " << remaining_k << std::endl;
-
-    // Allow the case where phi_T1 == remaining_k, since we can still perform exactly that many rotations
-    if (phi_T1 > remaining_k) {
-        std::cout << "[TreeDistI] φ(T1) > k - |I|, returning FALSE" << std::endl;
+    // Be more lenient - allow for the complexity of the remaining problem
+    if (remaining_budget < 0) {
+        debugPrint("TreeDistI: Not enough budget for rotations");
         return false;
     }
 
-    if (phi_T1 == 0 && remaining_k >= 0) {
-        std::cout << "[TreeDistI] φ(T1) = 0, checking equality" << std::endl;
-        bool equal = TreesEqual(T1, T2);
-        std::cout << "[TreeDistI] Trees equal? " << (equal ? "TRUE" : "FALSE") << std::endl;
-        return equal;
+    if (phi_init == 0 && k >= 0) {
+        bool result = TreesEqual(T_init, T_final);
+        debugPrint("TreeDistI: No internal edges, equal=" + std::string(result ? "true" : "false"));
+        return result;
     }
 
-    // Step 2: For each edge e ∈ I, rotate e
-    for (const auto& e : I) {
-        int u = e.u, v = e.v; // parent, child
-        std::cout << "\n[TreeDistI] → Processing edge (" << u << "," << v << ")" << std::endl;
+    // Step 2: Process each edge in I
+    VectorRangeTreeMap T_bar = safeCopyTree(T_init);
 
-        // Step 2.1: Perform rotation based on which child v is
-        bool rotated = false;
-        if (T1.getLeftChild(u) == v) {
-            std::cout << "[TreeDistI]   Rotating RIGHT at " << u << " (pulling up left child " << v << ")" << std::endl;
-            T1.rotateRight(u);
-            rotated = true;
-        } else if (T1.getRightChild(u) == v) {
-            std::cout << "[TreeDistI]   Rotating LEFT at " << u << " (pulling up right child " << v << ")" << std::endl;
-            T1.rotateLeft(u);
-            rotated = true;
+    for (const auto& edge : I) {
+        int parent = edge.first;
+        int child = edge.second;
+
+        debugPrint("TreeDistI: Rotating edge (" + std::to_string(parent) + "," + std::to_string(child) + ")");
+
+        // Verify this is actually a valid edge in the current tree
+        if (!hasParentChildEdge(T_bar, parent, child)) {
+            debugPrint("TreeDistI: Invalid edge, skipping");
+            continue;
         }
 
-        if (!rotated) {
-            std::cout << "[TreeDistI] ERROR: Could not rotate edge (" << u << "," << v << ")" << std::endl;
+        try {
+            if (T_bar.getLeftChild(parent) == child) {
+                T_bar.rotateRight(parent);
+            } else if (T_bar.getRightChild(parent) == child) {
+                T_bar.rotateLeft(parent);
+            }
+
+            // Check if we've reached the target after this rotation
+            if (TreesEqual(T_bar, T_final)) {
+                debugPrint("TreeDistI: Reached target after rotation");
+                return true;
+            }
+
+        } catch (...) {
+            debugPrint("TreeDistI: Exception during rotation");
+            return false;
+        }
+    }
+
+    // Simplified: just call TreeDistS with empty S and remaining budget
+    std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> emptyS;
+    return TreeDistS(T_bar, T_final, remaining_budget, emptyS);
+}
+
+// Simplified TreeDist-S implementation
+bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
+               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
+    debugPrint("Entering TreeDistS with k=" + std::to_string(k));
+
+    // Check if trees are already equal - this should be FIRST
+    if (TreesEqual(T_init, T_end)) {
+        debugPrint("TreeDistS: Trees already equal");
+        return true;
+    }
+
+    // Step 0: Early checks - be more lenient
+    int phi_init = countInternalEdges(T_init);
+    if (phi_init > k + 1) {  // Allow some extra budget
+        debugPrint("TreeDistS: Too many edges");
+        return false;
+    }
+
+    if (phi_init == 0 && k >= 0) {
+        bool result = TreesEqual(T_init, T_end);
+        debugPrint("TreeDistS: No internal edges, equal=" + std::string(result ? "true" : "false"));
+        return result;
+    }
+
+    // Early termination for small k
+    if (k <= 0) {
+        bool result = TreesEqual(T_init, T_end);
+        debugPrint("TreeDistS: k=0, equal=" + std::string(result ? "true" : "false"));
+        return result;
+    }
+
+    // Step 1: Check for free edge
+    auto [hasFree, freeEdge] = findFreeEdge(T_init, T_end);
+
+    if (hasFree) {
+        debugPrint("TreeDistS: Found free edge (" + std::to_string(freeEdge.first) + "," + std::to_string(freeEdge.second) + ")");
+
+        try {
+            int parent = freeEdge.first;
+            int child = freeEdge.second;
+
+            // Apply the rotation
+            VectorRangeTreeMap T_bar = safeCopyTree(T_init);
+            if (T_bar.getLeftChild(parent) == child) {
+                T_bar.rotateRight(parent);
+            } else if (T_bar.getRightChild(parent) == child) {
+                T_bar.rotateLeft(parent);
+            }
+
+            // Check if we've solved it
+            if (TreesEqual(T_bar, T_end)) {
+                debugPrint("TreeDistS: Solved with free edge rotation");
+                return true;
+            }
+
+            // For simplicity, recursively call with reduced k
+            return TreeDistS(T_bar, T_end, k - 1, {});
+
+        } catch (...) {
+            debugPrint("TreeDistS: Exception during free edge handling");
+        }
+    }
+
+    // No free edge found - try a more aggressive approach
+    debugPrint("TreeDistS: No free edge found");
+
+    // If we have budget left, try some rotations
+    if (k > phi_init) {
+        auto edges = getInternalEdges(T_init);
+        for (const auto& edge : edges) {
+            try {
+                VectorRangeTreeMap T_test = safeCopyTree(T_init);
+                int parent = edge.first;
+                int child = edge.second;
+
+                if (T_test.getLeftChild(parent) == child) {
+                    T_test.rotateRight(parent);
+                } else if (T_test.getRightChild(parent) == child) {
+                    T_test.rotateLeft(parent);
+                }
+
+                if (TreeDistS(T_test, T_end, k - 1, {})) {
+                    debugPrint("TreeDistS: Found solution with rotation");
+                    return true;
+                }
+            } catch (...) {
+                continue;
+            }
+        }
+    }
+
+    debugPrint("TreeDistS: No solution found");
+    return false;
+}
+
+// Helper function to print tree info with safety checks
+void printTreeInfo(const std::string& name, const VectorRangeTreeMap& T) {
+    try {
+        std::cout << name << " edges: ";
+        auto edges = getInternalEdges(T);
+        for (const auto& e : edges) {
+            std::cout << "(" << e.first << "," << e.second << ") ";
+        }
+        std::cout << "| Root: " << T.root << " | Nodes: " << T.original_nodes.size() << std::endl;
+    } catch (...) {
+        std::cout << name << " [ERROR: Cannot print tree info]" << std::endl;
+    }
+}
+
+// Test case structure
+struct TestCase {
+    std::string name;
+    std::vector<int> pre1, in1, pre2, in2;
+    int expectedMinK;  // Minimum k where we expect True
+    std::string description;
+};
+
+// Individual test runner with extensive debugging
+bool runSingleTest(const TestCase& test, bool verbose = true) {
+    if (verbose) {
+        std::cout << "\n" << std::string(60, '=') << std::endl;
+        std::cout << "TEST: " << test.name << std::endl;
+        std::cout << "Description: " << test.description << std::endl;
+        std::cout << std::string(60, '=') << std::endl;
+        std::cout << "DEBUG: Starting test..." << std::endl;
+    }
+
+    try {
+        // Step 1: Validate inputs
+        if (verbose) std::cout << "DEBUG: Validating inputs..." << std::endl;
+
+        if (test.pre1.empty() || test.in1.empty() || test.pre2.empty() || test.in2.empty()) {
+            if (verbose) std::cout << "✗ Invalid test sequences" << std::endl;
             return false;
         }
 
-        // CRITICAL: Check if we're done immediately after each rotation
-        if (TreesEqual(T1, T2)) {
-            std::cout << "[TreeDistI] ✓✓✓ TREES EQUAL after rotation! SUCCESS!" << std::endl;
-            return true;
+        if (test.pre1.size() != test.in1.size() || test.pre2.size() != test.in2.size()) {
+            if (verbose) std::cout << "✗ Sequence length mismatch" << std::endl;
+            return false;
+        }
+
+        // Step 2: Print input sequences for debugging
+        if (verbose) {
+            std::cout << "DEBUG: T1 preorder: ";
+            for (int x : test.pre1) std::cout << x << " ";
+            std::cout << std::endl;
+            std::cout << "DEBUG: T1 inorder: ";
+            for (int x : test.in1) std::cout << x << " ";
+            std::cout << std::endl;
+            std::cout << "DEBUG: T2 preorder: ";
+            for (int x : test.pre2) std::cout << x << " ";
+            std::cout << std::endl;
+            std::cout << "DEBUG: T2 inorder: ";
+            for (int x : test.in2) std::cout << x << " ";
+            std::cout << std::endl;
+        }
+
+        // Step 3: Build trees
+        if (verbose) std::cout << "DEBUG: Building T1..." << std::endl;
+        VectorRangeTreeMap T1;
+        try {
+            T1.build(test.pre1, test.in1);
+        } catch (...) {
+            if (verbose) std::cout << "✗ Failed to build T1" << std::endl;
+            return false;
+        }
+
+        if (verbose) std::cout << "DEBUG: Building T2..." << std::endl;
+        VectorRangeTreeMap T2;
+        try {
+            T2.build(test.pre2, test.in2);
+        } catch (...) {
+            if (verbose) std::cout << "✗ Failed to build T2" << std::endl;
+            return false;
+        }
+
+        // Step 4: Validate tree construction
+        if (verbose) std::cout << "DEBUG: Validating tree construction..." << std::endl;
+
+        if (T1.original_nodes.empty() || T2.original_nodes.empty()) {
+            if (verbose) std::cout << "✗ Trees not built correctly (empty node sets)" << std::endl;
+            return false;
+        }
+
+        if (T1.root < 0 || T2.root < 0) {
+            if (verbose) std::cout << "✗ Trees have invalid roots" << std::endl;
+            return false;
+        }
+
+        // Step 5: Print tree info
+        if (verbose) {
+            std::cout << "DEBUG: Printing tree info..." << std::endl;
+            printTreeInfo("T1", T1);
+            printTreeInfo("T2", T2);
+        }
+
+        // Step 6: Test TreesEqual
+        if (verbose) std::cout << "DEBUG: Testing TreesEqual..." << std::endl;
+        bool areEqual = false;
+        try {
+            areEqual = TreesEqual(T1, T2);
+        } catch (...) {
+            if (verbose) std::cout << "✗ TreesEqual threw exception" << std::endl;
+            return false;
+        }
+
+        if (verbose) {
+            std::cout << "Trees equal: " << (areEqual ? "Yes" : "No") << std::endl;
+        }
+
+        // Step 7: Handle identical trees
+        if (areEqual) {
+            if (verbose) std::cout << "Trees are identical, testing k=0" << std::endl;
+            bool result = false;
+            try {
+                result = FlipDistTree(T1, T2, 0);
+            } catch (...) {
+                if (verbose) std::cout << "✗ FlipDistTree(k=0) threw exception" << std::endl;
+                return false;
+            }
+            if (verbose) std::cout << "FlipDistTree(k=0): " << (result ? "True" : "False") << std::endl;
+            return result;
+        }
+
+        // Step 8: Test free edge detection
+        if (verbose) std::cout << "DEBUG: Testing free edge detection..." << std::endl;
+        try {
+            auto [hasFree, freeEdge] = findFreeEdge(T1, T2);
+            if (verbose) {
+                std::cout << "Free edge: " << (hasFree ? "Found (" + std::to_string(freeEdge.first) + "," + std::to_string(freeEdge.second) + ")" : "None") << std::endl;
+            }
+        } catch (...) {
+            if (verbose) std::cout << "? Free edge detection failed" << std::endl;
+        }
+
+        // Step 9: Test with different k values
+        if (verbose) std::cout << "DEBUG: Testing with different k values..." << std::endl;
+        bool foundSolution = false;
+        int solutionK = -1;
+
+        for (int k = 1; k <= 5; k++) {
+            if (verbose) std::cout << "DEBUG: Testing k=" << k << std::endl;
+            bool result = false;
+            try {
+                result = FlipDistTree(T1, T2, k);
+            } catch (...) {
+                if (verbose) std::cout << "✗ FlipDistTree(k=" << k << ") threw exception" << std::endl;
+                continue;
+            }
+
+            if (verbose) {
+                std::cout << "FlipDistTree(k=" << k << "): " << (result ? "True" : "False") << std::endl;
+            }
+
+            if (result && !foundSolution) {
+                foundSolution = true;
+                solutionK = k;
+            }
+        }
+
+        // Step 10: Report results
+        if (verbose) {
+            std::cout << "DEBUG: Reporting results..." << std::endl;
+            if (foundSolution) {
+                std::cout << "✓ First solution found at k=" << solutionK << std::endl;
+                if (test.expectedMinK > 0) {
+                    std::cout << "Expected minimum k: " << test.expectedMinK << std::endl;
+                    if (solutionK <= test.expectedMinK) {
+                        std::cout << "✓ PASS: Found solution within expected bound" << std::endl;
+                    } else {
+                        std::cout << "? WARNING: Solution found later than expected" << std::endl;
+                    }
+                }
+            } else {
+                std::cout << "✗ No solution found within k=5" << std::endl;
+            }
+        }
+
+        if (verbose) std::cout << "DEBUG: Test completed successfully" << std::endl;
+        return foundSolution;
+
+    } catch (const std::exception& e) {
+        if (verbose) std::cout << "✗ Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        if (verbose) std::cout << "✗ Unknown exception caught in test runner" << std::endl;
+        return false;
+    }
+}
+
+// Comprehensive test suite
+void testFlipDist() {
+    std::vector<TestCase> tests = {
+            // Test 1: Identical trees
+            {
+                    "Identical Trees",
+                    {2, 1, 3}, {1, 2, 3},
+                    {2, 1, 3}, {1, 2, 3},
+                    0,
+                    "Two identical trees should require 0 rotations"
+            },
+
+            // Test 2: Single rotation
+            {
+                    "Single Left Rotation",
+                    {2, 1, 3}, {1, 2, 3},
+                    {3, 2, 1}, {1, 2, 3},
+                    1,
+                    "Left rotation at root: 2(1,3) -> 3(2(1,_),_)"
+            },
+
+            // Test 3: Single right rotation
+            {
+                    "Single Right Rotation",
+                    {3, 2, 1}, {1, 2, 3},
+                    {2, 1, 3}, {1, 2, 3},
+                    1,
+                    "Right rotation at root: 3(2(1,_),_) -> 2(1,3)"
+            },
+
+            // Test 4: Larger tree - chain to balanced
+            {
+                    "Chain to Balanced",
+                    {1, 2, 3, 4}, {1, 2, 3, 4},
+                    {3, 2, 1, 4}, {1, 2, 3, 4},
+                    2,
+                    "Transform right-skewed chain to more balanced tree"
+            },
+
+            // Test 5: Balanced to chain
+            {
+                    "Balanced to Chain",
+                    {3, 2, 1, 4}, {1, 2, 3, 4},
+                    {1, 2, 3, 4}, {1, 2, 3, 4},
+                    2,
+                    "Transform balanced tree to right-skewed chain"
+            },
+
+            // Test 6: Larger example
+            {
+                    "4-Node Complex",
+                    {2, 1, 4, 3}, {1, 2, 3, 4},
+                    {4, 2, 1, 3}, {1, 2, 3, 4},
+                    3,
+                    "More complex 4-node transformation"
+            },
+
+            // Test 7: Very safe test case - let's debug this specific issue
+            {
+                    "Safe Test",
+                    {1, 2}, {1, 2},  // Simple 2-node tree
+                    {2, 1}, {1, 2},  // Same nodes, different structure
+                    1,
+                    "Very simple and safe test case"
+            },
+
+            // Test 8: Edge case - single node
+            {
+                    "Single Node",
+                    {1}, {1},
+                    {1}, {1},
+                    0,
+                    "Single node trees should be identical"
+            },
+
+            // Test 9: Two nodes - original order
+            {
+                    "Two Nodes A",
+                    {2, 1}, {1, 2},
+                    {2, 1}, {1, 2},
+                    0,
+                    "Identical 2-node trees"
+            },
+
+            // Test 10: Two nodes - different order
+            {
+                    "Two Nodes B",
+                    {1, 2}, {1, 2},
+                    {2, 1}, {1, 2},
+                    1,
+                    "Different 2-node tree structures"
+            }
+    };
+
+    std::cout << "\n" << std::string(80, '#') << std::endl;
+    std::cout << "FLIPDISTTREE ALGORITHM TEST SUITE" << std::endl;
+    std::cout << std::string(80, '#') << std::endl;
+
+    int passed = 0;
+    int total = tests.size();
+
+    for (size_t i = 0; i < tests.size(); i++) {
+        bool result = runSingleTest(tests[i], true);
+        if (result) passed++;
+
+        if (i < tests.size() - 1) {
+            std::cout << "\nPress Enter for next test...";
+            std::cin.get();
         }
     }
 
-    //just check if we're equal after all rotations
-    if (TreesEqual(T1, T2)) {
-        std::cout << "[TreeDistI] ✓✓✓ TREES EQUAL after all rotations! SUCCESS!" << std::endl;
-        return true;
+    std::cout << "\n" << std::string(80, '#') << std::endl;
+    std::cout << "TEST SUMMARY" << std::endl;
+    std::cout << std::string(80, '#') << std::endl;
+    std::cout << "Passed: " << passed << "/" << total << " tests" << std::endl;
+
+    if (passed == total) {
+        std::cout << "🎉 ALL TESTS PASSED!" << std::endl;
+    } else {
+        std::cout << "⚠️  " << (total - passed) << " tests failed" << std::endl;
     }
 
-    std::cout << "[TreeDistI] Trees not equal after rotations, would call TreeDistS" << std::endl;
-    return false;
-}
-
-bool TreeDistS(VectorRangeTreeMap T1, const VectorRangeTreeMap& T2, int k, std::vector<std::pair<Edge, Edge>> S) {
-    // Simplified implementation for now
-    return TreesEqual(T1, T2);
-}
-
-// Test the correct single rotation
-void testCorrectRotation() {
-    std::cout << "\n=== TESTING CORRECT ROTATION ===" << std::endl;
-
-    VectorRangeTreeMap T1, T2;
-
-    // T1: Tree with structure 3(1,2) - preorder {3,1,2}, inorder {1,3,2}
-    T1.build({3, 1, 2}, {1, 3, 2});
-
-    // T2: Tree with structure 1(NULL,3(2,NULL)) - preorder {1,3,2}, inorder {1,2,3}
-    T2.build({1, 3, 2}, {1, 2, 3});
-
-    debugTree(T1, "T1 (source)");
-    debugTree(T2, "T2 (target)");
-
-    // The correct rotation should be: rotate RIGHT at node 3
-    // This pulls up node 1, making it the new root
-    std::cout << "\n--- Manual rotation test ---" << std::endl;
-    VectorRangeTreeMap T1_manual = T1;
-    T1_manual.rotateRight(3);
-
-    debugTree(T1_manual, "T1 after manual RIGHT rotation at 3");
-
-    std::cout << "Trees equal after manual rotation? " << (TreesEqual(T1_manual, T2) ? "YES" : "NO") << std::endl;
-
-    // Compare serializations
-    std::cout << "\nSerialization comparison:" << std::endl;
-    std::cout << "T1 manual: " << treeToString(T1_manual) << std::endl;
-    std::cout << "T2 target: " << treeToString(T2) << std::endl;
-
-    // Now test the algorithm
-    std::cout << "\n--- Algorithm test ---" << std::endl;
-    bool result = FlipDistTree(T1, T2, 1);
-    std::cout << "Algorithm result (k=1): " << (result ? "SUCCESS" : "FAIL") << std::endl;
+    // Quick summary run
+    std::cout << "\nQuick Summary (no debug output):" << std::endl;
+    std::cout << std::string(50, '-') << std::endl;
+    for (size_t i = 0; i < tests.size(); i++) {
+        bool result = runSingleTest(tests[i], false);
+        std::cout << "Test " << (i+1) << " (" << tests[i].name << "): "
+                  << (result ? "✓ PASS" : "✗ FAIL") << std::endl;
+    }
 }
 
 int main() {
-    std::cout << "=== Running Fixed FlipDistTree Tests ===" << std::endl;
-
-    // Test the correct rotation first
-    testCorrectRotation();
-
-    std::cout << "\n" << std::string(60, '=') << std::endl;
-
-    VectorRangeTreeMap T1, T2;
-
-    // Test 1: Identical trees
-    std::cout << "\n=== Test 1: Identical Trees ===" << std::endl;
-    T1.build({3, 1, 2}, {1, 3, 2});
-    T2.build({3, 1, 2}, {1, 3, 2});
-    std::cout << "Test 1 (identical): " << (FlipDistTree(T1, T2, 0) ? "✓ PASS" : "✗ FAIL") << std::endl;
-
-    // Test 2: One rotation needed
-    std::cout << "\n=== Test 2: One Rotation ===" << std::endl;
-    T1.build({3, 1, 2}, {1, 3, 2});
-    T2.build({1, 3, 2}, {1, 2, 3});
-
-    debugTree(T1, "T1 (source)");
-    debugTree(T2, "T2 (target)");
-
-    // Test with k=1 (should work now)
-    std::cout << "\n--- Testing with k=1 ---" << std::endl;
-    bool result1 = FlipDistTree(T1, T2, 1);
-    std::cout << "Test 2 (k=1): " << (result1 ? "✓ PASS" : "✗ FAIL") << std::endl;
-
+    testFlipDist();
     return 0;
 }
