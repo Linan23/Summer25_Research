@@ -44,6 +44,7 @@ void VectorRangeTreeMap::verify() const {
 }
 #endif
 
+/*
 void VectorRangeTreeMap::build(const std::vector<int>& preorder, const std::vector<int>& inorder) {
     clear();
     if (preorder.empty()) return;
@@ -63,6 +64,52 @@ void VectorRangeTreeMap::build(const std::vector<int>& preorder, const std::vect
 
     root = preorder[0];
     buildRecursive(preorder, inorder, 0, (int)preorder.size()-1, 0, (int)inorder.size()-1, NO_PARENT);
+    calculateAllRanges();
+    verify();
+}
+*/
+
+void VectorRangeTreeMap::build(const std::vector<int>& preorder,
+                               const std::vector<int>& inorder) {
+    clear();
+    if (preorder.empty()) return;
+    if (preorder.size() != inorder.size())
+        throw std::logic_error("build: preorder and inorder sizes differ");
+
+    original_preorder = preorder;
+    original_inorder  = inorder;
+
+    original_nodes.clear();
+    for (int v : inorder) original_nodes.insert(v);
+
+    // sanity: preorder must be a permutation of inorder
+#ifndef NDEBUG
+    for (int v : preorder) {
+        if (!original_nodes.count(v))
+            throw std::logic_error("build: preorder has value not in inorder");
+    }
+#endif
+
+    max_node_value = std::max(
+        *std::max_element(preorder.begin(), preorder.end()),
+        *std::max_element(inorder.begin(),  inorder.end())
+    );
+    ranges .assign(max_node_value + 1, {0,0});
+    edges  .assign(max_node_value + 1, {NO_CHILD, NO_CHILD});
+    parents.assign(max_node_value + 1, NO_PARENT);
+
+    // refresh this every build
+    position_in_inorder.clear();
+    position_in_inorder.reserve(inorder.size());
+    for (int i = 0; i < (int)inorder.size(); ++i)
+        position_in_inorder[inorder[i]] = i;
+
+    root = preorder[0];
+    buildRecursive(preorder, inorder,
+                   /*ps=*/0, /*pe=*/(int)preorder.size()-1,
+                   /*is=*/0, /*ie=*/(int)inorder.size()-1,
+                   /*p=*/NO_PARENT);
+
     calculateAllRanges();
     verify();
 }
@@ -100,6 +147,7 @@ void VectorRangeTreeMap::clear() {
     root = -1; max_node_value = 0;
 }
 
+/*
 void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder, const std::vector<int>& inorder,
                                         int ps, int pe, int is, int ie, int p) {
     if (ps > pe || is > ie) return;
@@ -117,6 +165,71 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder, const 
         int right_root_val = preorder[ps + left_size + 1];
         setRightChild(root_val, right_root_val);
         buildRecursive(preorder, inorder, ps+left_size+1, pe, root_idx+1, ie, root_val);
+    }
+}
+*/
+
+void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder,
+                                        const std::vector<int>& inorder,
+                                        int ps, int pe, int is, int ie, int p) {
+    if (ps > pe || is > ie) return;
+
+    // Slice bounds must be valid and same length
+    if (ps < 0 || pe >= (int)preorder.size() || is < 0 || ie >= (int)inorder.size())
+        throw std::out_of_range("buildRecursive: slice out of bounds");
+
+    int pre_len = pe - ps + 1;
+    int in_len  = ie - is + 1;
+    if (pre_len != in_len)
+        throw std::logic_error("buildRecursive: preorder/inorder slice length mismatch");
+
+    // Root and its inorder position
+    const int root_val = preorder[ps];
+    auto it = position_in_inorder.find(root_val);
+    if (it == position_in_inorder.end())
+        throw std::logic_error("buildRecursive: root not found in inorder map");
+
+    const int root_idx = it->second;
+    if (root_idx < is || root_idx > ie)
+        throw std::logic_error("buildRecursive: root index outside inorder window");
+
+    parents[root_val] = p;
+
+    const int left_size  = root_idx - is;      // #nodes in left subtree
+    const int right_size = ie - root_idx;      // #nodes in right subtree
+
+    // Left subtree
+    if (left_size > 0) {
+        // Left preorder window is [ps+1, ps+left_size]
+        const int lps = ps + 1;
+        const int lpe = ps + left_size;
+        if (lps > lpe || lpe > pe)
+            throw std::logic_error("buildRecursive: left subtree preorder window invalid");
+
+        const int left_root_val = preorder[lps];
+        setLeftChild(root_val, left_root_val);
+
+        buildRecursive(preorder, inorder,
+                       /*ps=*/lps, /*pe=*/lpe,
+                       /*is=*/is,  /*ie=*/root_idx - 1,
+                       /*p=*/root_val);
+    }
+
+    // Right subtree
+    if (right_size > 0) {
+        // Right preorder window is [ps+left_size+1, pe]
+        const int rps = ps + left_size + 1;
+        const int rpe = pe;
+        if (rps > rpe)
+            throw std::logic_error("buildRecursive: right subtree preorder window invalid");
+
+        const int right_root_val = preorder[rps];
+        setRightChild(root_val, right_root_val);
+
+        buildRecursive(preorder, inorder,
+                       /*ps=*/rps,         /*pe=*/rpe,
+                       /*is=*/root_idx+1,  /*ie=*/ie,
+                       /*p=*/root_val);
     }
 }
 
