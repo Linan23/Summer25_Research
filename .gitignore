@@ -1,0 +1,50 @@
+# Build directories
+/build/
+/CMakeFiles/
+/cmake-build-*/
+
+# CMake generated files
+/CMakeCache.txt
+/cmake_install.cmake
+
+# Debug symbol bundles
+*.dSYM/
+
+# Compiled objects and archives
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# Sanitizer and test binaries
+*_asan
+*_asan.exe
+test
+test_*
+FlipDist
+FlipDist_*
+CMakeScripts/
+
+# General build outputs
+B_tree
+A_tree
+A-tree
+flipdist
+
+# Logs and caches
+*.log
+*.cache
+
+# Editor metadata
+.DS_Store
+*.swp
+*.swo
+*.tmp
+.vscode/
+.idea/
+
