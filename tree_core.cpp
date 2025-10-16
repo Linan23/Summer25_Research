@@ -1,12 +1,15 @@
-#include "A_tree.h"
+#include "rotation_tree.h"
 #include <algorithm>
 #include <cassert>
 #include <functional>
 #include <unordered_set>
 
+// Default-initialised tree with no nodes; Build will populate structure.
 VectorRangeTreeMap::VectorRangeTreeMap() : root(-1), max_node_value(0) {}
 
 #ifndef NDEBUG
+// Performs an expensive structural audit ensuring parent/child/range metadata
+// is consistent; invoked after mutations when assertions are enabled.
 void VectorRangeTreeMap::verify() const {
     for (int v : original_nodes) {
         assert(v >= 0 && v <= max_node_value);
@@ -69,6 +72,8 @@ void VectorRangeTreeMap::build(const std::vector<int>& preorder, const std::vect
 }
 */
 
+// Rebuilds the tree from preorder and inorder traversals; populates metadata
+// (ranges, parents, edge tables) and verifies structural consistency.
 void VectorRangeTreeMap::build(const std::vector<int>& preorder,
                                const std::vector<int>& inorder) {
     clear();
@@ -114,7 +119,7 @@ void VectorRangeTreeMap::build(const std::vector<int>& preorder,
     verify();
 }
 
-// accessors
+// Accessors 
 int VectorRangeTreeMap::getLeftChild(int node)  const { return (node>=0 && node<(int)edges.size()) ? edges[node].first  : NO_CHILD; }
 int VectorRangeTreeMap::getRightChild(int node) const { return (node>=0 && node<(int)edges.size()) ? edges[node].second : NO_CHILD; }
 int VectorRangeTreeMap::getParent(int node)     const { return (node>=0 && node<(int)parents.size()) ? parents[node]    : NO_PARENT; }
@@ -123,7 +128,7 @@ std::pair<int,int> VectorRangeTreeMap::getRange(int node) const {
 }
 bool VectorRangeTreeMap::isOriginal(int node) const { return original_nodes.count(node) > 0; }
 
-// mutators
+//  Mutators
 void VectorRangeTreeMap::setLeftChild(int node, int child) {
     if (node < 0 || node > max_node_value) return;
     int old = edges[node].first;
@@ -140,6 +145,7 @@ void VectorRangeTreeMap::setRightChild(int node, int child) {
 }
 
 // internal
+// Resets the tree to an empty state; used prior to rebuilding from traversals.
 void VectorRangeTreeMap::clear() {
     ranges.clear(); edges.clear(); parents.clear();
     original_inorder.clear(); original_preorder.clear();
@@ -169,6 +175,7 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder, const 
 }
 */
 
+// Recursively materialises the subtree for the given preorder/inorder slices.
 void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder,
                                         const std::vector<int>& inorder,
                                         int ps, int pe, int is, int ie, int p) {
@@ -233,6 +240,7 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int>& preorder,
     }
 }
 
+// Recomputes the inorder span for node v based on its current children.
 void VectorRangeTreeMap::updateNodeRange(int v) {
     if (v < 0 || v >= (int)ranges.size() || !isOriginal(v)) return;
     int L = getLeftChild(v), R = getRightChild(v);
@@ -243,6 +251,7 @@ void VectorRangeTreeMap::updateNodeRange(int v) {
     ranges[v] = {start, end};
 }
 
+// Propagates range updates upward until the values stabilise.
 void VectorRangeTreeMap::recomputeUpwardsFrom(int start) {
     int v = start;
     while (v != NO_PARENT) {
@@ -253,6 +262,7 @@ void VectorRangeTreeMap::recomputeUpwardsFrom(int start) {
     }
 }
 
+// Post-order traversal that seeds ranges for every node.
 void VectorRangeTreeMap::calculateRangesPostOrder(int v) {
     if (v == NO_CHILD || !isOriginal(v)) return;
     int L = getLeftChild(v), R = getRightChild(v);
@@ -273,6 +283,8 @@ void VectorRangeTreeMap::collectEdges(
     if (R != NO_CHILD && isOriginal(R)) { out.insert({node,R}); collectEdges(R, out); }
 }
 
+// Splits the tree along the parent->child edge defined by the ranges, returning
+// the induced subtrees on either side of the cut.
 std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
 VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
     const std::pair<int,int>& /*parent_range*/,

@@ -1,5 +1,5 @@
-#ifndef A_TREE_H
-#define A_TREE_H
+#ifndef ROTATION_TREE_H
+#define ROTATION_TREE_H
 
 #include <vector>
 #include <unordered_map>
@@ -7,9 +7,13 @@
 #include <string>
 #include <utility>
 
+// Forward decls
+struct BFSStats;
+
 // Utility for hashing (parent, child) pairs
 struct PairHash { size_t operator()(const std::pair<int,int>& p) const; };
 struct PairEq   { bool operator()(const std::pair<int,int>& a, const std::pair<int,int>& b) const; };
+
 
 // Core data structure
 struct VectorRangeTreeMap {
@@ -65,7 +69,8 @@ struct VectorRangeTreeMap {
     // friends
     friend bool        TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B);
     friend std::string treeToString(const VectorRangeTreeMap& T);
-    friend int  BFSSearch(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
+    friend int  BFSSearch(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
+                          BFSStats* stats);
     friend int  removeFreeEdge(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
     friend int  Dist(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
     friend int  FindRotationDistance(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final);
@@ -83,18 +88,62 @@ private:
 struct RP { int ps, pe, cs, ce; bool operator==(RP const&) const; };
 struct RPH { size_t operator()(RP const&) const; };
 
+static uint64_t fnv1a64(const std::string& s);
+
+// Captures the outcome and telemetry of BFSSearchCapped.
+struct BFSRun {
+    int dist; size_t expanded, enqueued, visited;
+    bool timeout, cap_hit; double seconds;
+    size_t duplicates{0};
+    size_t max_queue{0};
+    size_t equality_hits{0};
+    size_t signature_mismatches{0};
+};
+
+// Feature-rich BFS wrapper that enforces optional caps and returns telemetry.
+BFSRun BFSSearchCapped(const VectorRangeTreeMap& T_s,
+                       const VectorRangeTreeMap& T_e,
+                       double time_limit_sec = 10.0,
+                       size_t visited_cap    = 5'000'000,
+                       size_t queue_cap      = 5'000'000);
+
+// Optional live statistics callers can provide to BFSSearch.
+struct BFSStats {
+    size_t generated{0};
+    size_t enqueued{0};
+    size_t duplicates{0};
+    size_t equality_hits{0};
+    size_t max_queue{0};
+    size_t visited{0};
+    size_t signature_mismatches{0};
+};
+
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap&);
 bool hasEdgeByRange(const VectorRangeTreeMap& tree, const RP& e);
 bool hasFreeEdge(const VectorRangeTreeMap& cur, const VectorRangeTreeMap& tgt,
                  int& out_v, bool& out_leftRotation);
 
 // Distance Computation & Search
-int BFSSearch(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
+// Full BFS with optional statistics (used by testing/CLI code).
+int BFSSearch(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
+              BFSStats* stats = nullptr);
+// Baseline breadth-first search without heuristics.
+int BFSSearchBaseline(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
+                      BFSStats* stats = nullptr);
+// Enhanced breadth-first search with hashing/filters/meet-in-the-middle helpers.
+int BFSSearchOptimized(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
+                       BFSStats* stats = nullptr);
+// Hashed bidirectional BFS (meet-in-the-middle) with optional pruning heuristics.
+int BiBFSSearchHashed(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
+                      size_t state_cap = 2'000'000);
+// Attempts to resolve a “free edge” via decomposition; INT_MAX means fallback.
 int removeFreeEdge(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
+// Memoised distance computation leveraging free-edge shortcuts plus BFS.
 int Dist(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
+// Public API used by clients to compute rotation distance end-to-end.
 int FindRotationDistance(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final);
 
 // Verification tests
 void runAllTests();
 
-#endif // A_TREE_H
+#endif // ROTATION_TREE_H

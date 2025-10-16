@@ -1,19 +1,23 @@
-#include "A_tree.h"
+#include "rotation_tree.h"
 #include <sstream>
 #include <algorithm>
 #include <functional>
 #include <cstdint>
 
+
+// 64-bit FNV-1a hash used when serialising trees to stable fingerprints.
 static uint64_t fnv1a64(const std::string& s) {
     uint64_t h = 1469598103934665603ULL;
     for (unsigned char c : s) { h ^= c; h *= 1099511628211ULL; }
     return h;
 }
 
+// Convenience wrapper that hashes a tree via its string serialisation.
 static inline uint64_t key64(const VectorRangeTreeMap& T) {
     return fnv1a64(treeToString(T));
 }
 
+// Hash combination for integer pairs; shared across the whole project.
 size_t PairHash::operator()(const std::pair<int,int>& p) const {
     return std::hash<long long>()(((long long)p.first << 32) ^ (unsigned long long)p.second);
 }
@@ -21,6 +25,7 @@ bool PairEq::operator()(const std::pair<int,int>& a, const std::pair<int,int>& b
     return a.first==b.first && a.second==b.second;
 }
 
+// Structural equality check: compares node sets, ranges, and adjacency.
 bool TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
     if (A.original_nodes != B.original_nodes) return false;
     for (int v : A.original_nodes) {
@@ -32,6 +37,7 @@ bool TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
     return true;
 }
 
+// Stable text serialisation that drives canonicalKey/Tree hashers.
 std::string treeToString(const VectorRangeTreeMap& T) {
     std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
     std::sort(nodes.begin(), nodes.end());
