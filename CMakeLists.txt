@@ -15,7 +15,7 @@ add_library(flipcore STATIC
   test.cpp         # ok to include; it only provides helpers, not main
 )
 
-# So headers like "A_tree.h" are found by anything linking to flipcore
+# So headers like "rotation_tree.h" are found by anything linking to flipcore
 target_include_directories(flipcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 

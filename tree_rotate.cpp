@@ -1,5 +1,6 @@
-#include "A_tree.h"
+#include "rotation_tree.h"
 
+// Performs a standard AVL-style left rotation at node x and fixes metadata.
 void VectorRangeTreeMap::rotateLeft(int x) {
     int y = getRightChild(x);
     if (y == NO_CHILD) return;
@@ -31,6 +32,7 @@ void VectorRangeTreeMap::rotateLeft(int x) {
 #endif
 }
 
+// Performs a standard AVL-style right rotation at node x and fixes metadata.
 void VectorRangeTreeMap::rotateRight(int x) {
     int y = getLeftChild(x);
     if (y == NO_CHILD) return;

@@ -1,4 +1,4 @@
-#include "A_tree.h"
+#include "rotation_tree.h"
 #include <unordered_set>
 #include <functional>
 
@@ -10,6 +10,7 @@ size_t RPH::operator()(RP const& r) const {
     return std::hash<uint64_t>()(h1 ^ (h2 * 0x9e3779b97f4a7c15ULL));
 }
 
+// Collects the range-based edge signature for every edge in the target tree.
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T) {
     std::unordered_set<RP,RPH> s;
     std::function<void(int)> dfs = [&](int v){
@@ -27,6 +28,7 @@ std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T) {
     return s;
 }
 
+// Returns true if the given range-based edge exists in tree.
 bool hasEdgeByRange(const VectorRangeTreeMap& tree, const RP& e) {
     std::function<bool(int)> dfs = [&](int v)->bool{
         if (v < 0 || !tree.isOriginal(v)) return false;
@@ -57,6 +59,7 @@ static void collectEdgeSet(const VectorRangeTreeMap& T,
     dfs(T.root);
 }
 
+// Searches for a rotation in cur that creates an edge already present in tgt.
 bool hasFreeEdge(const VectorRangeTreeMap& cur,
                  const VectorRangeTreeMap& tgt,
                  int& out_v, bool& out_leftRotation)
