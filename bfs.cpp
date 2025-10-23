@@ -1,3 +1,12 @@
+// Centralises all breadth-first search variants used by the project. The file
+// implements the plain FIFO solver, the heuristic-enhanced version, and the
+// hashed bidirectional meet-in-the-middle search. The modern default flows via
+// the optimised solver, automatically enabling rotation filters on large
+// non-comb inputs and switching to BiBFS whenever time/space caps are hit.
+// Helper utilities at the top of the file (canonical hashing, heuristics,
+// env-flag readers) are shared across both C++ services and the comparison
+// harness.
+
 #include "rotation_tree.h"
 #include <algorithm>
 #include <chrono>

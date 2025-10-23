@@ -1,3 +1,8 @@
+// Implements the core mechanics of `VectorRangeTreeMap`: building from
+// traversals, maintaining parent/child metadata, verifying structure, and
+// computing range information. Rotation helpers live in tree_rotate.cpp and
+// reuse the primitives defined here.
+
 #include "rotation_tree.h"
 #include <algorithm>
 #include <cassert>

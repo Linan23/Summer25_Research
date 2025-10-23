@@ -1,3 +1,10 @@
+// Houses the lightweight CLI harness we use during development. It keeps the
+// legacy unit checks, the random/comb scaling probes, and the interactive demo
+// (`BFS_DEMO=1`) that prints trees and reconstructs the exact rotation path
+// in both directions. All behaviour is controlled through environment
+// variables so we can trigger probes, cap sizes, or request visualisations
+// without recompiling.
+
 #include "rotation_tree.h"
 #include "comparison.h"
 #include "tree_generators.h"
@@ -14,6 +21,7 @@
 #include <string>
 #include <cstdlib>
 #include <cerrno>
+#include <functional>
 
 // Parses an environment variable as a double, returning fallback on failure.
 static bool envAsFlag(const char *name, bool fallback = false)
@@ -114,6 +122,220 @@ static int LowerBound_MissingTargetEdges(const VectorRangeTreeMap& cur, const Ve
     tgt.collectEdges(tgt.root, Et);
     int common = 0; for (auto& e : Ec) if (Et.count(e)) ++common;
     return int(Et.size()) - common;
+}
+
+static std::string envAsString(const char* name, const std::string& fallback)
+{
+    if (const char* val = std::getenv(name)) return std::string(val);
+    return fallback;
+}
+
+static void printTreeAscii(const VectorRangeTreeMap& tree, std::ostream& os, const char* heading)
+{
+    os << heading << "\n";
+    if (tree.root == VectorRangeTreeMap::NO_CHILD) {
+        os << "  (empty)\n";
+        return;
+    }
+
+    std::function<void(int,const std::string&,bool)> rec =
+        [&](int node, const std::string& prefix, bool left) {
+            if (node == VectorRangeTreeMap::NO_CHILD || !tree.isOriginal(node)) return;
+
+            int right = tree.getRightChild(node);
+            int leftChild = tree.getLeftChild(node);
+            bool hasRight = (right != VectorRangeTreeMap::NO_CHILD) && tree.isOriginal(right);
+            bool hasLeft  = (leftChild != VectorRangeTreeMap::NO_CHILD) && tree.isOriginal(leftChild);
+
+            if (hasRight) rec(right, prefix + (left ? "│   " : "    "), false);
+
+            os << prefix;
+            if (!prefix.empty()) {
+                os << (left ? "└── " : "┌── ");
+            }
+            os << node << "\n";
+
+            if (hasLeft)  rec(leftChild, prefix + (left ? "    " : "│   "), true);
+        };
+
+    rec(tree.root, "", true);
+}
+
+struct DemoParentInfo {
+    std::string parent_key;
+    int pivot{-1};
+    bool left{false};
+};
+
+static std::vector<VectorRangeTreeMap>
+buildDemoPath(const VectorRangeTreeMap& start,
+              const VectorRangeTreeMap& goal,
+              std::vector<DemoParentInfo>& moves_out)
+{
+    moves_out.clear();
+    std::string startKey = treeToString(start);
+    std::string goalKey  = treeToString(goal);
+    if (startKey == goalKey) return {start};
+
+    struct Node { VectorRangeTreeMap tree; std::string key; };
+
+    std::queue<Node> q;
+    std::unordered_set<std::string> visited;
+    std::unordered_map<std::string, DemoParentInfo> parent;
+
+    visited.insert(startKey);
+    parent.emplace(startKey, DemoParentInfo{"", -1, false});
+    q.push(Node{start, startKey});
+
+    bool found = false;
+    while (!q.empty() && !found) {
+        Node cur = std::move(q.front());
+        q.pop();
+
+        for (int v : cur.tree.original_nodes) {
+            if (cur.tree.getRightChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                auto tmp = cur.tree;
+                tmp.rotateLeft(v);
+                std::string key = treeToString(tmp);
+                if (visited.insert(key).second) {
+                    parent.emplace(key, DemoParentInfo{cur.key, v, true});
+                    if (key == goalKey) { found = true; break; }
+                    q.push(Node{tmp, key});
+                }
+            }
+            if (cur.tree.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                auto tmp = cur.tree;
+                tmp.rotateRight(v);
+                std::string key = treeToString(tmp);
+                if (visited.insert(key).second) {
+                    parent.emplace(key, DemoParentInfo{cur.key, v, false});
+                    if (key == goalKey) { found = true; break; }
+                    q.push(Node{tmp, key});
+                }
+            }
+            if (found) break;
+        }
+    }
+
+    if (!found) return {start};
+
+    std::vector<DemoParentInfo> moves;
+    std::string curKey = goalKey;
+    while (curKey != startKey) {
+        const DemoParentInfo& info = parent.at(curKey);
+        moves.push_back(info);
+        curKey = info.parent_key;
+    }
+    std::reverse(moves.begin(), moves.end());
+    moves_out = moves;
+
+    std::vector<VectorRangeTreeMap> path;
+    path.reserve(moves.size() + 1);
+    VectorRangeTreeMap current = start;
+    path.push_back(current);
+    for (const auto& step : moves) {
+        if (step.pivot >= 0) {
+            if (step.left) current.rotateLeft(step.pivot);
+            else           current.rotateRight(step.pivot);
+        }
+        path.push_back(current);
+    }
+    return path;
+}
+
+static void printDemoPath(const char* label,
+                          const std::vector<VectorRangeTreeMap>& path,
+                          const std::vector<DemoParentInfo>& moves,
+                          bool ascii,
+                          size_t max_steps)
+{
+    if (path.empty()) return;
+    std::cout << label << " path length=" << (path.size() - 1) << "\n";
+    size_t limit = max_steps ? std::min(max_steps, path.size()) : path.size();
+    for (size_t i = 0; i < limit; ++i) {
+        if (i == 0) {
+            std::cout << "  Step 0 (start): ";
+        } else {
+            const DemoParentInfo& mv = moves[i-1];
+            std::cout << "  Step " << i << " (" << (mv.left ? "rotateLeft" : "rotateRight")
+                      << ' ' << mv.pivot << "): ";
+        }
+        std::cout << canonicalTraversalString(path[i]) << "\n";
+        if (ascii) {
+            printTreeAscii(path[i], std::cout, "    ");
+        }
+    }
+    if (limit < path.size()) {
+        std::cout << "  ... (" << (path.size() - limit) << " more steps omitted)\n";
+    }
+}
+
+static void run_bruteforce_demo()
+{
+    if (!envAsFlag("BFS_DEMO")) return;
+
+    std::string mode = envAsString("BFS_DEMO_MODE", "random");
+    int n = static_cast<int>(envAsSize("BFS_DEMO_N", 10));
+    uint32_t seedA = static_cast<uint32_t>(envAsSize("BFS_DEMO_SEED_A", 2025));
+    uint32_t seedB = static_cast<uint32_t>(envAsSize("BFS_DEMO_SEED_B", seedA + 1));
+    bool show_ascii = envAsFlag("BFS_DEMO_ASCII", true);
+    size_t max_steps = envAsSize("BFS_DEMO_MAX_STEPS", 0);
+
+    VectorRangeTreeMap A, B;
+    if (mode == "comb") {
+        Traversals left  = makeCombTraversals(n, /*rightComb=*/false);
+        Traversals right = makeCombTraversals(n, /*rightComb=*/true);
+        A.build(left.preorder, left.inorder);
+        B.build(right.preorder, right.inorder);
+    } else {
+        std::mt19937 rngA(seedA);
+        std::mt19937 rngB(seedB);
+        Traversals tA = makeRandomTraversals(n, rngA);
+        Traversals tB = makeRandomTraversals(n, rngB);
+        A.build(tA.preorder, tA.inorder);
+        B.build(tB.preorder, tB.inorder);
+    }
+
+    std::cout << "=== C++ brute-force demo ===\n";
+    std::cout << "mode=" << mode << " n=" << n
+              << " seedA=" << seedA << " seedB=" << seedB << "\n";
+    std::cout << "Tree A canonical: " << canonicalTraversalString(A) << "\n";
+    if (show_ascii) printTreeAscii(A, std::cout, "Tree A");
+    std::cout << "Tree B canonical: " << canonicalTraversalString(B) << "\n";
+    if (show_ascii) printTreeAscii(B, std::cout, "Tree B");
+
+    BFSStats statsAB{}, statsBA{};
+    int distAB = BFSSearchOptimized(A, B, &statsAB);
+    int distBA = BFSSearchOptimized(B, A, &statsBA);
+
+    auto dumpStats = [](const char* label, int dist, const BFSStats& st) {
+        std::cout << label << " dist=" << dist
+                  << " generated=" << st.generated
+                  << " enqueued=" << st.enqueued
+                  << " duplicates=" << st.duplicates
+                  << " visited=" << st.visited
+                  << " max_queue=" << st.max_queue
+                  << " equality_hits=" << st.equality_hits
+                  << " signature_mismatches=" << st.signature_mismatches
+                  << "\n";
+    };
+
+    dumpStats("A -> B", distAB, statsAB);
+    dumpStats("B -> A", distBA, statsBA);
+
+    if (distAB == distBA) {
+        std::cout << "[OK] symmetric distances match." << "\n";
+    } else {
+        std::cout << "[WARN] distances differ (A->B=" << distAB
+                  << ", B->A=" << distBA << ")" << "\n";
+    }
+    std::cout.flush();
+
+    std::vector<DemoParentInfo> movesAB, movesBA;
+    auto pathAB = buildDemoPath(A, B, movesAB);
+    auto pathBA = buildDemoPath(B, A, movesBA);
+    printDemoPath("A -> B", pathAB, movesAB, show_ascii, max_steps);
+    printDemoPath("B -> A", pathBA, movesBA, show_ascii, max_steps);
 }
 
 // Ensures the canonical traversal serialisation stays stable.
@@ -349,9 +571,9 @@ static void capacity_with_my_bfs() {
         VectorRangeTreeMap L,R; L.build(leftComb.preorder, leftComb.inorder); R.build(rightComb.preorder, rightComb.inorder);
         int LB = LowerBound_MissingTargetEdges(L, R);
 
-        const double time_limit = envAsDouble("MY_BFS_TIME_LIMIT", 3.0);
-        const size_t visited_cap = envAsSize("MY_BFS_VISITED_CAP", 5'000'000);
-        const size_t queue_cap   = envAsSize("MY_BFS_QUEUE_CAP",   5'000'000);
+        const double time_limit = envAsDouble("BFS_TIME_LIMIT", 3.0);
+        const size_t visited_cap = envAsSize("BFS_VISITED_CAP", 5'000'000);
+        const size_t queue_cap   = envAsSize("BFS_QUEUE_CAP",   5'000'000);
         auto res = BFSSearchCapped(L, R, time_limit, visited_cap, queue_cap);
         std::cout << "[MY-BFS] n="<<n<<" comb dist="<<res.dist
                   << " LB="<<LB<<" UB="<<res.dist
@@ -381,9 +603,9 @@ static void random_with_my_bfs() {
             VectorRangeTreeMap A,B; A.build(tA.preorder, tA.inorder); B.build(tB.preorder, tB.inorder);
             int LB = LowerBound_MissingTargetEdges(A, B);
 
-            const double time_limit = envAsDouble("MY_BFS_RANDOM_TIME_LIMIT", 2.0);
-            const size_t visited_cap = envAsSize("MY_BFS_RANDOM_VISITED_CAP", 5'000'000);
-            const size_t queue_cap   = envAsSize("MY_BFS_RANDOM_QUEUE_CAP",   5'000'000);
+            const double time_limit = envAsDouble("BFS_RANDOM_TIME_LIMIT", 2.0);
+            const size_t visited_cap = envAsSize("BFS_RANDOM_VISITED_CAP", 5'000'000);
+            const size_t queue_cap   = envAsSize("BFS_RANDOM_QUEUE_CAP",   5'000'000);
             auto res = BFSSearchCapped(A, B, time_limit, visited_cap, queue_cap);
             std::cout << "   n="<<n<<" rand dist="<<res.dist
                       << " LB="<<LB<<" UB="<<res.dist
@@ -395,9 +617,9 @@ static void random_with_my_bfs() {
                       << (res.cap_hit ? "CAP " : "")
                       << "\n";
 
-            if (envAsFlag("MY_BFS_RANDOM_USE_BIDIR"))
+            if (envAsFlag("BFS_RANDOM_USE_BIDIR"))
             {
-                size_t state_cap = envAsSize("MY_BFS_RANDOM_BIDIR_CAP", 5'000'000);
+                size_t state_cap = envAsSize("BFS_RANDOM_BIDIR_CAP", 5'000'000);
                 int d_bidir = BiBFSSearchHashed(A, B, state_cap);
                 std::cout << "      [BiBiFS] dist="<<d_bidir<<" cap="<<state_cap
                           << (d_bidir == INT_MAX ? " HIT" : "") << "\n";
@@ -409,20 +631,20 @@ static void random_with_my_bfs() {
 
 // Optional probe for the random-case ceiling of the brute-force solver.
 static void probe_random_limit() {
-    if (!envAsFlag("MY_BFS_PROBE_RANDOM_LIMIT"))
+    if (!envAsFlag("BFS_PROBE_RANDOM_LIMIT"))
         return;
 
-    int start_n = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_START", 8));
-    int max_n   = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_MAX",   30));
-    int trials  = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_TRIALS", 5));
-    uint32_t seed = static_cast<uint32_t>(envAsSize("MY_BFS_PROBE_RANDOM_SEED", 2025));
+    int start_n = static_cast<int>(envAsSize("BFS_PROBE_RANDOM_START", 8));
+    int max_n   = static_cast<int>(envAsSize("BFS_PROBE_RANDOM_MAX",   30));
+    int trials  = static_cast<int>(envAsSize("BFS_PROBE_RANDOM_TRIALS", 5));
+    uint32_t seed = static_cast<uint32_t>(envAsSize("BFS_PROBE_RANDOM_SEED", 2025));
 
-    double time_limit = envAsDouble("MY_BFS_PROBE_RANDOM_TIME_LIMIT", 5.0);
-    size_t visited_cap = envAsSize("MY_BFS_PROBE_RANDOM_VISITED_CAP", 5'000'000);
-    size_t queue_cap   = envAsSize("MY_BFS_PROBE_RANDOM_QUEUE_CAP",   5'000'000);
+    double time_limit = envAsDouble("BFS_PROBE_RANDOM_TIME_LIMIT", 5.0);
+    size_t visited_cap = envAsSize("BFS_PROBE_RANDOM_VISITED_CAP", 5'000'000);
+    size_t queue_cap   = envAsSize("BFS_PROBE_RANDOM_QUEUE_CAP",   5'000'000);
 
-    bool use_bidir = envAsFlag("MY_BFS_PROBE_RANDOM_USE_BIDIR");
-    size_t bidir_cap = envAsSize("MY_BFS_PROBE_RANDOM_BIDIR_CAP", 5'000'000);
+    bool use_bidir = envAsFlag("BFS_PROBE_RANDOM_USE_BIDIR");
+    size_t bidir_cap = envAsSize("BFS_PROBE_RANDOM_BIDIR_CAP", 5'000'000);
 
     std::mt19937 rng(seed);
     for (int n = start_n; n <= max_n; ++n) {
@@ -477,7 +699,6 @@ static void probe_random_limit() {
 // Master test entry point executed by main().
 void runAllTests() {
     /*
-
     test_canonical_serialization();
     test_comparison_row_json();
     test_bidirectional_agreement();
@@ -490,10 +711,11 @@ void runAllTests() {
     capacity_sweep_bibfs_only();
     capacity_with_my_bfs();
     // random_with_my_bfs();
-    
+
     */
 
     probe_random_limit();
+    run_bruteforce_demo();
 }
 
 int main()

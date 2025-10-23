@@ -6,6 +6,11 @@
 # CMake generated files
 /CMakeCache.txt
 /cmake_install.cmake
+/CMakeFiles/
+/Makefile
+/CMakeScripts/
+/cmake-build*/
+/build/
 
 # Debug symbol bundles
 *.dSYM/
@@ -40,6 +45,10 @@ flipdist
 *.log
 *.cache
 
+# Generated reports
+*.csv
+*.md
+
 # Editor metadata
 .DS_Store
 *.swp
@@ -48,3 +57,7 @@ flipdist
 .vscode/
 .idea/
 
+# System files
+.AppleDouble
+.LSOverride
+Thumbs.db

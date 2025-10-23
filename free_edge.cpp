@@ -1,3 +1,8 @@
+// Contains utilities for detecting and resolving “free edges” (edges that can
+// be rotated independently) during distance computations. By splitting the
+// tree along these edges we reduce the search space the BFS needs to explore
+// and cache subproblem distances.
+
 #include "rotation_tree.h"
 #include <unordered_set>
 #include <functional>

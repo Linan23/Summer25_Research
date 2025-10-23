@@ -1,3 +1,8 @@
+// Implements hashing, serialisation, and equality helpers for
+// `VectorRangeTreeMap`. These routines give the BFS engine stable fingerprints
+// (canonical strings, FNV hashes) and lightweight comparisons used throughout
+// the solver and comparison harness.
+
 #include "rotation_tree.h"
 #include <sstream>
 #include <algorithm>
