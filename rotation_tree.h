@@ -69,6 +69,7 @@ struct VectorRangeTreeMap {
     // friends
     friend bool        TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B);
     friend std::string treeToString(const VectorRangeTreeMap& T);
+    friend std::string canonicalTraversalString(const VectorRangeTreeMap& T);
     friend int  BFSSearch(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te,
                           BFSStats* stats);
     friend int  removeFreeEdge(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te);
@@ -145,5 +146,9 @@ int FindRotationDistance(const VectorRangeTreeMap& T_init, const VectorRangeTree
 
 // Verification tests
 void runAllTests();
+
+// Serialisation helpers shared across CLI/test code.
+std::string treeToString(const VectorRangeTreeMap& T);
+std::string canonicalTraversalString(const VectorRangeTreeMap& T);
 
 #endif // ROTATION_TREE_H

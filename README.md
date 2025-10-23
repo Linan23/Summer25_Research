@@ -11,20 +11,38 @@
 - Runtime still balloons on random inputs (state explosion). We need stronger heuristics (A*/IDA* using RP ranges + edge deficits), automatic hand-off to hashed BiBFS when queues explode, and finer-grained duplicate/symmetry pruning (rotation ordering, better incremental updates).  
 - Maybe integrate an admissible A*/IDA* pipeline, promote BiBFS into the default solver, expand symmetry pruning (canonical rotations), and explore lightweight parallelisation of the two frontiers.
 
+**10/22/25 - Demo tooling & bidirectional defaults**  
+- Added a CLI-style demo (`MY_BFS_DEMO=1`) that generates comb or random pairs, prints ASCII trees, and reconstructs every rotation along the minimal path in both directions.  
+- Hooked automatic bidirectional preference into `BFSSearch`: large non-comb inputs now run `BiBFSSearchHashed` first (`MY_BFS_BIDIR_PREFER_THRESHOLD` controls the cutoff).  
+- Exposed `MY_BFS_AUTO_FILTER_THRESHOLD` so the “don’t lose shared edges” heuristic can be toggled off when studying pure BFS blow-ups.  
+- Documented all environment variables in one place; demo output now makes parity checks against the Java tool trivial by logging solver type, queue sizes, and step-by-step transformations.
+
 
 
 
 **Runtime knobs** (set via environment variables):
-- `MY_BFS_MODE`: `baseline` forces the original FIFO BFS; anything else uses the optimized solver (hashes, rotation filters, bidir fallback).
-- `MY_BFS_FILTER_ROTATIONS=1`: enable comb-specific pruning (only allow rotations that add target edges, with a fallback for dead fronts).
-- `MY_BFS_TIME_LIMIT`: per-run time cap used by `BFSSearchCapped` (seconds).
-- `MY_BFS_VISITED_CAP` / `MY_BFS_QUEUE_CAP`: hard limits on the visited set / queue size; hitting them terminates the search with a `CAP` flag.
-- `MY_BFS_USE_BIDIR=1`: after the single-ended BFS times out, automatically try the hashed bidirectional search before giving up.
-- `MY_BFS_TRANSPOSITION_CAP`: size of the per-hash table that stores the best depth seen; bypassing worse duplicates avoids re-expansion.
-- `MY_BFS_SYMMETRY_PRUNE=1`: skip rotations that would only mirror identical subtrees, keeping search on a canonical path.
-- Other flags: `MY_BFS_RANDOM_USE_BIDIR`, `MY_BFS_RANDOM_*` variants mirror the main switches for the random benchmarks.
+- `MY_BFS_MODE` – `baseline` forces the original FIFO BFS; any other value keeps the optimized solver (hashing, pruning, fallback).
+- `MY_BFS_USE_BIDIR` – enable/disable auto hand-off to hashed bidirectional BFS when caps are hit.
+- `MY_BFS_BIDIR_PREFER_THRESHOLD` – if both trees have at least this many original nodes (and are not combs), run BiBFS immediately.
+- `MY_BFS_AUTO_FILTER_THRESHOLD` – auto-enable the monotone rotation filter above this size; set high to keep the search pure.
+- `MY_BFS_FILTER_ROTATIONS`, `MY_BFS_SYMMETRY_PRUNE`, `MY_BFS_TRANSPOSITION_CAP`, `MY_BFS_HEURISTIC` – optional pruning/ordering toggles for the optimized engine.
+- `MY_BFS_TIME_LIMIT`, `MY_BFS_VISITED_CAP`, `MY_BFS_QUEUE_CAP` – `BFSSearchCapped` safety limits; when tripped the run terminates (and may fall back if allowed).
+- Random probe mirrors: `MY_BFS_RANDOM_USE_BIDIR`, `MY_BFS_RANDOM_TIME_LIMIT`, `MY_BFS_RANDOM_VISITED_CAP`, `MY_BFS_RANDOM_QUEUE_CAP`.
+
+- Demo Tree helpers: `MY_BFS_DEMO`, `MY_BFS_DEMO_MODE`, `MY_BFS_DEMO_N`, `MY_BFS_DEMO_SEED_A/B`, `MY_BFS_DEMO_ASCII`, `MY_BFS_DEMO_MAX_STEPS`.  
+  - `MY_BFS_DEMO_MODE` (`random` | `comb`) chooses random vs. comb trees.  
+  - `MY_BFS_DEMO_N` sets the number of internal nodes.  
+  - `MY_BFS_DEMO_SEED_A/B` control the RNG seeds for the two random trees (ignored in comb mode).  
+  - `MY_BFS_DEMO_ASCII` toggles ASCII rendering; `MY_BFS_DEMO_MAX_STEPS` limits how many intermediate trees are printed.
 
 **BFS variants**  
 - `BFSSearchBaseline`: plain FIFO BFS (no hashing, no heuristics).  
 - `BFSSearchOptimized`: hashed visited set + filters + optional best-first scoring, symmetry prune, transposition table; falls back to `BiBFSSearchHashed` on timeout when enabled.  
 - `BiBFSSearchHashed`: meet-in-the-middle search—grow one frontier from the start and another from the target, and when they meet you sum the depths. Because each frontier only needs ≈half the number of steps of a single-ended BFS, it prunes deep comb states much faster. The hashed version reuses the same pruning (rotation filters, symmetry checks, transposition table) on both sides so the frontiers stay in sync.
+
+**Comparison script (`scripts/run_compare.py`)**  
+- Runs both C++ (`test_asan`) and Java (TriangulationFlip) solvers on the same seeds, capturing solver, timing, and queue stats.  
+- Default flow: launch pure BFS; if it times out or hits caps, automatically re-run the same instance with `BiBFSSearchHashed` to recover the distance.  
+- `--no-auto-bidir` disables the replay, so the CSV shows raw timeouts (`distance_cpp=-1`).  
+- Accepts `--case random|comb`, `--n`, `--count`, `--seed`, `--output`, plus the env vars above for finer control (e.g., to force pure BFS or raise time/space caps).  
+- CSV columns include `solver_cpp/solver_java` (bfs/bidir), `status_cpp/status_java` (ok/timeout/cap), and the canonical tree strings so mismatches are reproducible.

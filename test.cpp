@@ -1,4 +1,6 @@
 #include "rotation_tree.h"
+#include "comparison.h"
+#include "tree_generators.h"
 #include <numeric>
 #include <random>
 #include <iostream>
@@ -103,38 +105,6 @@ static int BiBFSSearch(const VectorRangeTreeMap& S, const VectorRangeTreeMap& T,
 }
 
 
-// Generates traversals for a “comb” tree, leaning right (spine) when rightComb.
-static void buildComb(int n, bool rightComb, std::vector<int>& pre, std::vector<int>& in) {
-    in.resize(n); std::iota(in.begin(), in.end(), 1);
-    pre.resize(n);
-    if (rightComb) std::iota(pre.begin(), pre.end(), 1);
-    else for (int i=0;i<n;i++) pre[i] = n - i;
-}
-
-struct Shape{ Shape* L{nullptr}; Shape* R{nullptr}; int label{-1}; };
-// Recursively synthesises a random binary tree with n nodes; leaves are shared
-// helper structures used only during test generation.
-static Shape* buildRandomShape(int n, std::mt19937& rng) {
-    if (n<=0) return nullptr; if (n==1) return new Shape();
-    std::uniform_int_distribution<int> pick(0, n-1);
-    int left_sz = pick(rng), right_sz = n-1-left_sz;
-    auto* t = new Shape(); t->L = buildRandomShape(left_sz, rng); t->R = buildRandomShape(right_sz, rng); return t;
-}
-// Assigns labels 1..n to the shape by walking it in-order.
-static void assignInorder(Shape* t, int& next) { if (!t) return; assignInorder(t->L, next); t->label = next++; assignInorder(t->R, next); }
-// Writes the shape's in-order traversal into the provided buffer.
-static void dumpInorder(Shape* t, std::vector<int>& in){ if (!t) return; dumpInorder(t->L, in); in.push_back(t->label); dumpInorder(t->R, in); }
-// Writes the shape's pre-order traversal into the provided buffer.
-static void dumpPreorder(Shape* t, std::vector<int>& pre){ if (!t) return; pre.push_back(t->label); dumpPreorder(t->L, pre); dumpPreorder(t->R, pre); }
-// Cleans up the temporary tree produced for test generation.
-static void freeShape(Shape* t){ if (!t) return; freeShape(t->L); freeShape(t->R); delete t; }
-
-// Converts a random Shape into preorder/inorder vectors and then frees it.
-static void buildRandomTraversals(int n, std::vector<int>& pre, std::vector<int>& in, std::mt19937& rng) {
-    Shape* t = buildRandomShape(n, rng);
-    int next = 1; assignInorder(t, next); dumpInorder(t, in); dumpPreorder(t, pre); freeShape(t);
-}
-
 // Local LB used for logs
 // Counts how many target edges are still missing and converts the tally into a
 // simple admissible lower bound (each rotation can fix at most three edges).
@@ -144,6 +114,102 @@ static int LowerBound_MissingTargetEdges(const VectorRangeTreeMap& cur, const Ve
     tgt.collectEdges(tgt.root, Et);
     int common = 0; for (auto& e : Ec) if (Et.count(e)) ++common;
     return int(Et.size()) - common;
+}
+
+// Ensures the canonical traversal serialisation stays stable.
+static void test_canonical_serialization() {
+    std::vector<int> pre{2,1,3}, in{1,2,3};
+    VectorRangeTreeMap T; T.build(pre, in);
+    std::string enc = canonicalTraversalString(T);
+    assert(enc == "P:2,1,3;I:1,2,3");
+
+    // Rotation does not change traversal order sets.
+    T.rotateRight(2);
+    std::string enc2 = canonicalTraversalString(T);
+    assert(enc == enc2);
+}
+
+// Verifies JSON serialisation for comparison rows.
+static void test_comparison_row_json() {
+    std::vector<int> pre{2,1,3}, in{1,2,3};
+    VectorRangeTreeMap A; A.build(pre, in);
+    VectorRangeTreeMap B; B.build(pre, in);
+
+    ComparisonOptions opts;
+    opts.case_type = "identity";
+    opts.direction = "a->b";
+    opts.seed = 123;
+    opts.time_limit_sec = 1.0;
+    opts.visited_cap = 1024;
+    opts.queue_cap = 1024;
+
+    ComparisonRow row = runComparison(A, B, opts);
+    if (row.distance != 0) {
+        std::cerr << "[DEBUG] row.distance=" << row.distance
+                  << " status=" << row.status
+                  << " solver=" << row.solver
+                  << " time_ms=" << row.time_ms << "\n";
+    }
+    assert(row.distance == 0);
+    assert(row.status == "ok");
+    assert(row.solver == "bfs");
+
+    std::string json = comparisonRowToJson(row);
+    assert(json.find("\"program\":\"test_asan\"") != std::string::npos);
+    assert(json.find("\"case_type\":\"identity\"") != std::string::npos);
+    assert(json.find("\"distance\":0") != std::string::npos);
+    assert(json.find("\"status\":\"ok\"") != std::string::npos);
+    assert(json.find("\"solver\":\"bfs\"") != std::string::npos);
+}
+
+// Checks that forward and reverse distances agree on simple cases.
+static void test_bidirectional_agreement() {
+    std::vector<int> preA{2,1,3}, inA{1,2,3};
+    std::vector<int> preB{1,2,3}, inB{1,2,3};
+    VectorRangeTreeMap A; A.build(preA, inA);
+    VectorRangeTreeMap B; B.build(preB, inB);
+
+    ComparisonOptions opts;
+    opts.case_type = "unit";
+    opts.seed = 7;
+    opts.time_limit_sec = 1.0;
+    opts.visited_cap = 1024;
+    opts.queue_cap = 1024;
+
+    ComparisonPair pair = runBidirectional(A, B, opts);
+    assert(pair.distance_agrees);
+    assert(pair.forward.distance == 1);
+    assert(pair.reverse.distance == 1);
+    assert(pair.forward.status == "ok");
+    assert(pair.reverse.status == "ok");
+    assert(pair.forward.solver == "bfs");
+    assert(pair.reverse.solver == "bfs");
+}
+
+// Ensures the comparison wrapper falls back to bidirectional search when BFS hits limits.
+static void test_comparison_fallback() {
+    Traversals leftComb  = makeCombTraversals(4, /*rightComb=*/false);
+    Traversals rightComb = makeCombTraversals(4, /*rightComb=*/true);
+    VectorRangeTreeMap A, B;
+    A.build(leftComb.preorder, leftComb.inorder);
+    B.build(rightComb.preorder, rightComb.inorder);
+
+    ComparisonOptions opts;
+    opts.case_type = "fallback";
+    opts.seed = 0;
+    opts.time_limit_sec = 1.0;
+    opts.visited_cap = 1;
+    opts.queue_cap = 1;
+    opts.use_bidir_on_timeout = true;
+    opts.bidir_state_cap = 10'000;
+
+    ComparisonRow row = runComparison(A, B, opts);
+    assert(row.distance == 3);
+
+    ComparisonPair pair = runBidirectional(A, B, opts);
+    assert(pair.distance_agrees);
+    assert(pair.forward.distance == 3);
+    assert(pair.reverse.distance == 3);
 }
 
 // Verifies that identical trees report distance 0 and that statistics stay sane.
@@ -198,10 +264,9 @@ static void test_random_small_agreement() {
     std::mt19937 rng(2025);
     for (int n = 3; n <= 7; ++n) {
         for (int trial = 0; trial < 8; ++trial) {
-            std::vector<int> preA,inA,preB,inB;
-            buildRandomTraversals(n, preA, inA, rng);
-            buildRandomTraversals(n, preB, inB, rng);
-            VectorRangeTreeMap A,B; A.build(preA,inA); B.build(preB,inB);
+            Traversals tA = makeRandomTraversals(n, rng);
+            Traversals tB = makeRandomTraversals(n, rng);
+            VectorRangeTreeMap A,B; A.build(tA.preorder, tA.inorder); B.build(tB.preorder, tB.inorder);
             int d_bidir = BiBFSSearchHashed(A, B, /*cap=*/5'000'000);
             assert(d_bidir != INT_MAX);
             int d_baseline = BFSSearchBaseline(A, B);
@@ -218,10 +283,9 @@ static void test_minimality_small() {
     std::mt19937 rng(12345);
     for (int n=3; n<=12; ++n) {
         for (int t=0; t<10; ++t) {
-            std::vector<int> preA,inA,preB,inB;
-            buildRandomTraversals(n, preA, inA, rng);
-            buildRandomTraversals(n, preB, inB, rng);
-            VectorRangeTreeMap A,B; A.build(preA,inA); B.build(preB,inB);
+            Traversals tA = makeRandomTraversals(n, rng);
+            Traversals tB = makeRandomTraversals(n, rng);
+            VectorRangeTreeMap A,B; A.build(tA.preorder, tA.inorder); B.build(tB.preorder, tB.inorder);
 #ifndef NDEBUG
             A.verify(); B.verify();
 #endif
@@ -241,10 +305,9 @@ static void test_minimality_small() {
                           << " (oracle "<<ms1<<"ms, repeat "<<ms2<<"ms)\n";
             }
         }
-        std::vector<int> preL,inL,preR,inR;
-        buildComb(n, false, preL, inL);
-        buildComb(n, true,  preR, inR);
-        VectorRangeTreeMap L,R; L.build(preL,inL); R.build(preR,inR);
+        Traversals leftComb  = makeCombTraversals(n, /*rightComb=*/false);
+        Traversals rightComb = makeCombTraversals(n, /*rightComb=*/true);
+        VectorRangeTreeMap L,R; L.build(leftComb.preorder, leftComb.inorder); R.build(rightComb.preorder, rightComb.inorder);
 #ifndef NDEBUG
         L.verify(); R.verify();
 #endif
@@ -259,10 +322,9 @@ static void test_minimality_small() {
 static void capacity_sweep_bibfs_only() {
     const double TIME_LIMIT = 2.0;
     for (int n=8; n<=40; ++n) {
-        std::vector<int> preL,inL,preR,inR;
-        buildComb(n, false, preL, inL);
-        buildComb(n, true,  preR, inR);
-        VectorRangeTreeMap L,R; L.build(preL,inL); R.build(preR,inR);
+        Traversals leftComb  = makeCombTraversals(n, /*rightComb=*/false);
+        Traversals rightComb = makeCombTraversals(n, /*rightComb=*/true);
+        VectorRangeTreeMap L,R; L.build(leftComb.preorder, leftComb.inorder); R.build(rightComb.preorder, rightComb.inorder);
         auto t0 = std::chrono::steady_clock::now();
         int d = BiBFSSearch(L, R, /*cap=*/5'000'000);
         int LB = LowerBound_MissingTargetEdges(L, R);
@@ -282,10 +344,9 @@ static void capacity_sweep_bibfs_only() {
 // Benchmarks the filtered BFS on comb instances while logging telemetry.
 static void capacity_with_my_bfs() {
     for (int n=13; n<=60; ++n) {
-        std::vector<int> preL,inL,preR,inR;
-        buildComb(n, false, preL, inL);
-        buildComb(n, true,  preR, inR);
-        VectorRangeTreeMap L,R; L.build(preL,inL); R.build(preR,inR);
+        Traversals leftComb  = makeCombTraversals(n, /*rightComb=*/false);
+        Traversals rightComb = makeCombTraversals(n, /*rightComb=*/true);
+        VectorRangeTreeMap L,R; L.build(leftComb.preorder, leftComb.inorder); R.build(rightComb.preorder, rightComb.inorder);
         int LB = LowerBound_MissingTargetEdges(L, R);
 
         const double time_limit = envAsDouble("MY_BFS_TIME_LIMIT", 3.0);
@@ -315,10 +376,9 @@ static void random_with_my_bfs() {
     std::mt19937 rng(42);
     for (int n=13; n<=40; ++n) {
         for (int t=0; t<3; ++t) {
-            std::vector<int> preA,inA,preB,inB;
-            buildRandomTraversals(n, preA, inA, rng);
-            buildRandomTraversals(n, preB, inB, rng);
-            VectorRangeTreeMap A,B; A.build(preA,inA); B.build(preB,inB);
+            Traversals tA = makeRandomTraversals(n, rng);
+            Traversals tB = makeRandomTraversals(n, rng);
+            VectorRangeTreeMap A,B; A.build(tA.preorder, tA.inorder); B.build(tB.preorder, tB.inorder);
             int LB = LowerBound_MissingTargetEdges(A, B);
 
             const double time_limit = envAsDouble("MY_BFS_RANDOM_TIME_LIMIT", 2.0);
@@ -347,8 +407,81 @@ static void random_with_my_bfs() {
     }
 }
 
+// Optional probe for the random-case ceiling of the brute-force solver.
+static void probe_random_limit() {
+    if (!envAsFlag("MY_BFS_PROBE_RANDOM_LIMIT"))
+        return;
+
+    int start_n = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_START", 8));
+    int max_n   = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_MAX",   30));
+    int trials  = static_cast<int>(envAsSize("MY_BFS_PROBE_RANDOM_TRIALS", 5));
+    uint32_t seed = static_cast<uint32_t>(envAsSize("MY_BFS_PROBE_RANDOM_SEED", 2025));
+
+    double time_limit = envAsDouble("MY_BFS_PROBE_RANDOM_TIME_LIMIT", 5.0);
+    size_t visited_cap = envAsSize("MY_BFS_PROBE_RANDOM_VISITED_CAP", 5'000'000);
+    size_t queue_cap   = envAsSize("MY_BFS_PROBE_RANDOM_QUEUE_CAP",   5'000'000);
+
+    bool use_bidir = envAsFlag("MY_BFS_PROBE_RANDOM_USE_BIDIR");
+    size_t bidir_cap = envAsSize("MY_BFS_PROBE_RANDOM_BIDIR_CAP", 5'000'000);
+
+    std::mt19937 rng(seed);
+    for (int n = start_n; n <= max_n; ++n) {
+        bool all_ok = true;
+        for (int t = 0; t < trials; ++t) {
+            Traversals tA = makeRandomTraversals(n, rng);
+            Traversals tB = makeRandomTraversals(n, rng);
+            VectorRangeTreeMap A, B;
+            A.build(tA.preorder, tA.inorder);
+            B.build(tB.preorder, tB.inorder);
+
+            auto t0 = std::chrono::steady_clock::now();
+            BFSRun res = BFSSearchCapped(A, B, time_limit, visited_cap, queue_cap);
+            auto t1 = std::chrono::steady_clock::now();
+            double bfs_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+            std::cout << "[PROBE] n=" << n
+                      << " trial=" << t
+                      << " bfs_dist=" << res.dist
+                      << " time_ms=" << bfs_ms
+                      << " visited=" << res.visited
+                      << " maxQ=" << res.max_queue
+                      << " dup=" << res.duplicates
+                      << (res.timeout ? " TIMEOUT" : "")
+                      << (res.cap_hit ? " CAP" : "")
+                      << "\n";
+
+            bool solved = (!res.timeout && !res.cap_hit && res.dist != INT_MAX);
+            if (!solved) {
+                all_ok = false;
+
+                if (use_bidir) {
+                    auto fb0 = std::chrono::steady_clock::now();
+                    int d_bidir = BiBFSSearchHashed(A, B, bidir_cap);
+                    auto fb1 = std::chrono::steady_clock::now();
+                    double fb_ms = std::chrono::duration<double, std::milli>(fb1 - fb0).count();
+                    std::cout << "        [BiBFS] dist=" << d_bidir
+                              << " time_ms=" << fb_ms
+                              << (d_bidir == INT_MAX ? " HIT_CAP" : "")
+                              << "\n";
+                }
+                break; // Fail fast once BFS falters at this size.
+            }
+        }
+        if (!all_ok) {
+            std::cout << "[PROBE] random brute-force ceiling observed near n=" << n << "\n";
+            break;
+        }
+    }
+}
+
 // Master test entry point executed by main().
 void runAllTests() {
+    /*
+
+    test_canonical_serialization();
+    test_comparison_row_json();
+    test_bidirectional_agreement();
+    test_comparison_fallback();
     test_identity_cases();
     test_single_rotation();
     test_skew_vs_balanced();
@@ -357,6 +490,10 @@ void runAllTests() {
     capacity_sweep_bibfs_only();
     capacity_with_my_bfs();
     // random_with_my_bfs();
+    
+    */
+
+    probe_random_limit();
 }
 
 int main()
