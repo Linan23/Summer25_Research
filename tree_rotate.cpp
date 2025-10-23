@@ -1,3 +1,8 @@
+// Houses the left/right rotation implementations used during BFS expansions
+// and demo path reconstruction. Rotations reuse the metadata maintenance
+// hooks defined in tree_core.cpp and keep the tree’s range and parent tables
+// consistent after each adjustment.
+
 #include "rotation_tree.h"
 
 // Performs a standard AVL-style left rotation at node x and fixes metadata.

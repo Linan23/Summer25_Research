@@ -1,3 +1,9 @@
+// Defines the `VectorRangeTreeMap` structure—the shared binary tree
+// representation used by both solvers and the comparison tooling. The class
+// stores traversal metadata, supports in-place rotations, and exposes helpers
+// for hashing, equality, and edge collection. Search code in bfs.cpp and the
+// Java bridge depend on this header for consistent tree semantics.
+
 #ifndef ROTATION_TREE_H
 #define ROTATION_TREE_H
 

@@ -12,6 +12,8 @@ add_library(flipcore STATIC
   free_edge.cpp
   bfs.cpp
   distance.cpp
+  tree_generators.cpp
+  comparison.cpp
   test.cpp         # ok to include; it only provides helpers, not main
 )
 
@@ -27,6 +29,9 @@ target_link_libraries(B_tree PRIVATE flipcore)
 
 add_executable(tests test.cpp)
 target_link_libraries(tests PRIVATE flipcore)
+
+add_executable(compare_cli compare_cli.cpp)
+target_link_libraries(compare_cli PRIVATE flipcore)
 
 # Convenience meta-target
 add_custom_target(compile

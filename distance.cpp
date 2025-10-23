@@ -1,3 +1,8 @@
+// Implements higher-level distance helpers that combine free-edge
+// decompositions, memoisation, and fallbacks to the BFS engine. These helpers
+// back the heuristics used by the optimised solver when it estimates lower
+// bounds or short-circuits trivially solvable subproblems.
+
 #include "rotation_tree.h"
 #include <unordered_map>
 #include <climits>
