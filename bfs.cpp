@@ -201,7 +201,18 @@ bool optimizedModeEnabled() {
     }();
     return mode != 0;
 }
-bool bidirFallbackEnabled() { static const bool enabled = envFlagEnabled("MY_BFS_USE_BIDIR"); return enabled; }
+bool bidirFallbackEnabled() {
+    static int mode = [](){
+        if (const char* val = std::getenv("MY_BFS_USE_BIDIR")) {
+            if (val[0] == '\0' || val[0] == '0') return 0;
+            char c = static_cast<char>(std::tolower(static_cast<unsigned char>(val[0])));
+            if (c == 'f' || c == 'n') return 0;
+            if (c == '1' || c == 'y' || c == 't') return 1;
+        }
+        return 1; // default: enable fallback
+    }();
+    return mode != 0;
+}
 bool bestFirstEnabled() {
     static int mode = [](){
         if (const char* val = std::getenv("MY_BFS_HEURISTIC")) {
@@ -217,6 +228,26 @@ bool symmetryPruneEnabled() { static const bool enabled = envFlagEnabled("MY_BFS
 size_t transpositionCap() {
     static size_t cap = envSize("MY_BFS_TRANSPOSITION_CAP", 0);
     return cap;
+}
+
+size_t nodeCount(const VectorRangeTreeMap& tree) {
+    return tree.original_nodes.size();
+}
+
+size_t autoFilterThreshold() {
+    static size_t threshold = envSize("MY_BFS_AUTO_FILTER_THRESHOLD", 10);
+    return threshold;
+}
+
+bool preferBiBfsDefault(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
+    static size_t threshold = envSize("MY_BFS_BIDIR_PREFER_THRESHOLD", 12);
+    if (looksLikeComb(A) && looksLikeComb(B)) return false;
+    return nodeCount(A) >= threshold;
+}
+
+bool autoMonotonicEnabled(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B) {
+    if (looksLikeComb(A) && looksLikeComb(B)) return false;
+    return nodeCount(A) >= autoFilterThreshold();
 }
 } // namespace
 
@@ -369,9 +400,11 @@ int BFSSearchOptimized(const VectorRangeTreeMap& T_s, const VectorRangeTreeMap& 
     std::vector<std::optional<int>> transposition_table;
     if (tt_cap) transposition_table.resize(tt_cap);
 
+    const bool comb_shape = looksLikeComb(T_s) && looksLikeComb(T_e);
+    const bool comb_mode = comb_shape;
     const bool want_filter = rotationFilterEnabled();
-    const bool comb_mode = want_filter && looksLikeComb(T_s) && looksLikeComb(T_e);
-    const bool monotonic_mode = want_filter && !comb_mode;
+    const bool auto_monotonic = autoMonotonicEnabled(T_s, T_e);
+    const bool monotonic_mode = (want_filter && !comb_shape) || auto_monotonic;
     const bool filter_enabled = comb_mode || monotonic_mode;
     const bool symmetry_enabled = symmetryPruneEnabled();
 
@@ -558,6 +591,13 @@ int BFSSearchOptimized(const VectorRangeTreeMap& T_s, const VectorRangeTreeMap& 
 int BFSSearch(const VectorRangeTreeMap& T_s, const VectorRangeTreeMap& T_e,
               BFSStats* stats)
 {
+    if (preferBiBfsDefault(T_s, T_e)) {
+        size_t cap = envSize("MY_BFS_BIDIR_CAP", 5'000'000);
+        if (stats) *stats = BFSStats{};
+        int dist = BiBFSSearchHashed(T_s, T_e, cap);
+        if (dist != INT_MAX)
+            return dist;
+    }
     if (optimizedModeEnabled())
         return BFSSearchOptimized(T_s, T_e, stats);
     return BFSSearchBaseline(T_s, T_e, stats);
@@ -586,9 +626,11 @@ int BiBFSSearchHashed(const VectorRangeTreeMap& S, const VectorRangeTreeMap& T,
     std::unordered_map<uint64_t,std::string> dbgS, dbgT;
     if (debugVisited) { dbgS.reserve(1<<16); dbgT.reserve(1<<16); }
 
+    const bool comb_shape = looksLikeComb(S) && looksLikeComb(T);
     const bool want_filter = rotationFilterEnabled();
-    const bool comb_mode = want_filter && looksLikeComb(S) && looksLikeComb(T);
-    const bool monotonic_mode = want_filter && !comb_mode;
+    const bool auto_monotonic = autoMonotonicEnabled(S, T);
+    const bool comb_mode = comb_shape;
+    const bool monotonic_mode = (want_filter && !comb_shape) || auto_monotonic;
     const bool filter_enabled = comb_mode || monotonic_mode;
     const bool symmetry_enabled = symmetryPruneEnabled();
     EdgeSet target_edges_S = filter_enabled ? collectEdgeSet(T) : EdgeSet{}; // from S side, target is T
@@ -787,6 +829,15 @@ BFSRun BFSSearchCapped(const VectorRangeTreeMap& T_s,
         return res;
     };
 
+    auto try_bidir = [&]() -> std::optional<BFSRun> {
+        if (!bidirFallbackEnabled()) return std::nullopt;
+        size_t cap = envSize("MY_BFS_BIDIR_CAP", 5'000'000);
+        int d_bidir = BiBFSSearchHashed(T_s, T_e, cap);
+        if (d_bidir != INT_MAX)
+            return make_result(d_bidir, false, false, elapsed_seconds());
+        return std::nullopt;
+    };
+
     const bool want_filter = rotationFilterEnabled();
     const bool comb_mode = want_filter && looksLikeComb(T_s) && looksLikeComb(T_e);
     const bool monotonic_mode = want_filter && !comb_mode;
@@ -819,6 +870,8 @@ BFSRun BFSSearchCapped(const VectorRangeTreeMap& T_s,
         }
 
         if (V.size() >= visited_cap || Q.size() >= queue_cap) {
+            if (auto fb = try_bidir(); fb.has_value())
+                return *fb;
             return make_result(INT_MAX, false, true, elapsed_seconds());
         }
 
@@ -864,8 +917,11 @@ BFSRun BFSSearchCapped(const VectorRangeTreeMap& T_s,
 
     while (!Q.empty()) {
         const double sec = std::chrono::duration<double>(Clock::now() - t0).count();
-        if (sec > time_limit_sec)
+        if (sec > time_limit_sec) {
+            if (auto fb = try_bidir(); fb.has_value())
+                return *fb;
             return make_result(INT_MAX, true, false, sec);
+        }
 
         Node cur = std::move(Q.front());
         Q.pop();
@@ -926,11 +982,7 @@ BFSRun BFSSearchCapped(const VectorRangeTreeMap& T_s,
         }
     }
 
-    if (bidirFallbackEnabled()) {
-        size_t cap = envSize("MY_BFS_BIDIR_CAP", 5'000'000);
-        int d_bidir = BiBFSSearchHashed(T_s, T_e, cap);
-        if (d_bidir != INT_MAX)
-            return make_result(d_bidir, false, false, elapsed_seconds());
-    }
+    if (auto fb = try_bidir(); fb.has_value())
+        return *fb;
     return make_result(INT_MAX, false, false, elapsed_seconds());
 }

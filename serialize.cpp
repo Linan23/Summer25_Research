@@ -51,3 +51,22 @@ std::string treeToString(const VectorRangeTreeMap& T) {
     }
     return oss.str();
 }
+
+// Canonical traversal-based fingerprint: encodes preorder and inorder sequences.
+std::string canonicalTraversalString(const VectorRangeTreeMap& T) {
+    auto emit = [](const std::vector<int>& seq) {
+        std::ostringstream oss;
+        bool first = true;
+        for (int v : seq) {
+            if (!first) oss << ',';
+            first = false;
+            oss << v;
+        }
+        return oss.str();
+    };
+
+    std::ostringstream out;
+    out << "P:" << emit(T.original_preorder)
+        << ";I:" << emit(T.original_inorder);
+    return out.str();
+}
