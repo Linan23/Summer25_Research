@@ -1,4 +1,5 @@
 #include "rotation_tree.h"
+#include "tree_generators.h"
 #include <iostream>
 #include <algorithm>
 #include <set>
@@ -14,13 +15,271 @@
 #include <iomanip>
 #include <fstream>
 #include <deque>
+#include <sstream>
+#include <cstdlib>
+#include <cstdio>
+#include <cctype>
+#include <cstdint>
+#include <stdexcept>
 
-// Forward declarations
+int MinRotationsBFS(const VectorRangeTreeMap &A, const VectorRangeTreeMap &B, int cap);
 bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k);
-bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k,
+bool TreeDistI(const VectorRangeTreeMap &T_init,
+               const VectorRangeTreeMap &T_final,
+               int k,
                const std::vector<std::pair<int, int>> &I);
 bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end, int k,
                const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S);
+bool hasParentChildEdge(const VectorRangeTreeMap &T, int parent, int child);
+
+namespace {
+
+struct FlipMemoKey {
+    std::string start;
+    std::string target;
+    int k;
+
+    bool operator==(const FlipMemoKey &other) const noexcept {
+        return k == other.k && start == other.start && target == other.target;
+    }
+};
+
+struct FlipMemoKeyHash {
+    std::size_t operator()(const FlipMemoKey &key) const noexcept {
+        std::size_t h1 = std::hash<std::string>()(key.start);
+        std::size_t h2 = std::hash<std::string>()(key.target);
+        std::size_t h3 = std::hash<int>()(key.k);
+        std::size_t seed = h1;
+        seed ^= h2 + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+        seed ^= h3 + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+};
+
+static std::unordered_map<FlipMemoKey, bool, FlipMemoKeyHash> g_flipDistMemo;
+
+static int lowerBoundEdgeDifference(const VectorRangeTreeMap &A,
+                                    const VectorRangeTreeMap &B)
+{
+    std::unordered_set<std::pair<int,int>,PairHash,PairEq> EA, EB;
+    A.collectEdges(A.root, EA);
+    B.collectEdges(B.root, EB);
+    int common = 0;
+    for (const auto &e : EA) {
+        if (EB.count(e)) ++common;
+    }
+    int diff = static_cast<int>(EA.size() + EB.size() - 2 * common);
+    // Each rotation can fix at most three diagonal mismatches in the convex polygon model.
+    return (diff + 2) / 3;
+}
+
+static inline std::pair<int,int> makeUndirectedPair(int a, int b)
+{
+    return (a < b) ? std::make_pair(a, b) : std::make_pair(b, a);
+}
+
+static bool findEdgeOrientation(const VectorRangeTreeMap &T,
+                                int a,
+                                int b,
+                                int &parent_out,
+                                int &child_out)
+{
+    if (!T.isOriginal(a) || !T.isOriginal(b)) return false;
+    if (T.getLeftChild(a) == b || T.getRightChild(a) == b) {
+        parent_out = a;
+        child_out = b;
+        return true;
+    }
+    if (T.getLeftChild(b) == a || T.getRightChild(b) == a) {
+        parent_out = b;
+        child_out = a;
+        return true;
+    }
+    return false;
+}
+
+static bool edgesShareEndpoint(const std::pair<int,int>& a,
+                               const std::pair<int,int>& b)
+{
+    auto ua = makeUndirectedPair(a.first, a.second);
+    auto ub = makeUndirectedPair(b.first, b.second);
+    return ua.first == ub.first || ua.first == ub.second ||
+           ua.second == ub.first || ua.second == ub.second;
+}
+
+static bool branchOnSPairs(const VectorRangeTreeMap &T_init,
+                           const VectorRangeTreeMap &T_end,
+                           int k,
+                           const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S,
+                           std::size_t index,
+                           std::vector<std::pair<int,int>> &chosen)
+{
+    if (index == S.size())
+    {
+        if (chosen.empty()) return false;
+        return ::TreeDistI(T_init, T_end, k, chosen);
+    }
+
+    if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen))
+        return true;
+
+    const auto &pair = S[index];
+    const std::pair<int,int> options[2] = {pair.first, pair.second};
+
+    for (const auto &edge : options)
+    {
+        if (!::hasParentChildEdge(T_init, edge.first, edge.second))
+            continue;
+
+        bool conflict = false;
+        for (const auto &sel : chosen)
+        {
+            if (edgesShareEndpoint(edge, sel)) { conflict = true; break; }
+        }
+        if (conflict) continue;
+
+        chosen.push_back(edge);
+        if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen))
+            return true;
+        chosen.pop_back();
+    }
+
+    return false;
+}
+
+static bool tryCommonEdgeDecomposition(const VectorRangeTreeMap &start,
+                                       const VectorRangeTreeMap &target,
+                                       int k)
+{
+    if (k <= 0) return false;
+
+    std::unordered_set<std::pair<int,int>, PairHash, PairEq> startEdgesDirected;
+    start.collectEdges(start.root, startEdgesDirected);
+    if (startEdgesDirected.empty()) return false;
+
+    std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetEdgesDirected;
+    target.collectEdges(target.root, targetEdgesDirected);
+
+    std::unordered_map<std::pair<int,int>, std::pair<int,int>, PairHash, PairEq> targetOrientation;
+    for (const auto &edge : targetEdgesDirected) {
+        auto und = makeUndirectedPair(edge.first, edge.second);
+        int parent, child;
+        if (!findEdgeOrientation(target, edge.first, edge.second, parent, child)) continue;
+        targetOrientation.emplace(und, std::make_pair(parent, child));
+    }
+
+    for (const auto &edge : startEdgesDirected) {
+        auto und = makeUndirectedPair(edge.first, edge.second);
+        auto it = targetOrientation.find(und);
+        if (it == targetOrientation.end()) continue;
+
+        int parentStart, childStart;
+        if (!findEdgeOrientation(start, edge.first, edge.second, parentStart, childStart)) continue;
+        int parentTarget = it->second.first;
+        int childTarget  = it->second.second;
+
+        auto startChildRange  = start.getRange(childStart);
+        auto targetChildRange = target.getRange(childTarget);
+
+        auto startParts  = VectorRangeTreeMap::partitionAlongEdge(start,
+                                    start.getRange(parentStart), startChildRange);
+        auto targetParts = VectorRangeTreeMap::partitionAlongEdge(target,
+                                    target.getRange(parentTarget), targetChildRange);
+
+        const auto &startChildTree = startParts.first;
+        const auto &startRestTree  = startParts.second;
+        const auto &targetChildTree = targetParts.first;
+        const auto &targetRestTree  = targetParts.second;
+
+        if (startChildTree.original_nodes.empty() || startRestTree.original_nodes.empty())
+            continue;
+        if (startChildTree.original_nodes != targetChildTree.original_nodes)
+            continue;
+        if (startRestTree.original_nodes != targetRestTree.original_nodes)
+            continue;
+
+        int lbChild = lowerBoundEdgeDifference(startChildTree, targetChildTree);
+        int lbRest  = lowerBoundEdgeDifference(startRestTree, targetRestTree);
+        if (lbChild + lbRest > k) continue;
+
+        for (int budgetChild = lbChild; budgetChild <= k - lbRest; ++budgetChild) {
+            if (!FlipDistTree(startChildTree, targetChildTree, budgetChild)) continue;
+            int remaining = k - budgetChild;
+            if (FlipDistTree(startRestTree, targetRestTree, remaining)) {
+                return true;
+            }
+        }
+
+        int distChild = MinRotationsBFS(startChildTree, targetChildTree, k);
+        if (distChild < 0) continue;
+        int remaining = k - distChild;
+        if (remaining < 0) continue;
+        int distRest = MinRotationsBFS(startRestTree, targetRestTree, remaining);
+        if (distRest < 0) continue;
+        if (distChild + distRest <= k) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static std::vector<std::pair<int,int>> collectConflictingEdges(
+        const VectorRangeTreeMap &start,
+        const VectorRangeTreeMap &target)
+{
+    std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetEdgesDirected;
+    target.collectEdges(target.root, targetEdgesDirected);
+    std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetUndirected;
+    for (const auto &edge : targetEdgesDirected) {
+        targetUndirected.insert(makeUndirectedPair(edge.first, edge.second));
+    }
+
+    std::vector<std::pair<int,int>> conflicts;
+    std::unordered_set<std::pair<int,int>, PairHash, PairEq> startEdgesDirected;
+    start.collectEdges(start.root, startEdgesDirected);
+    for (const auto &edge : startEdgesDirected) {
+        if (!targetUndirected.count(makeUndirectedPair(edge.first, edge.second))) {
+            conflicts.push_back(edge);
+        }
+    }
+    return conflicts;
+}
+
+static std::vector<std::pair<int,int>> buildMaxIndependentSet(
+        const VectorRangeTreeMap &start,
+        const std::vector<std::pair<int,int>> &conflicts)
+{
+    std::vector<std::pair<int,int>> independent;
+    std::unordered_set<int> usedNodes;
+
+    std::vector<std::pair<int,int>> sorted = conflicts;
+    std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
+        int ma = std::min(a.first, a.second);
+        int mb = std::min(b.first, b.second);
+        if (ma != mb) return ma < mb;
+        int xa = std::max(a.first, a.second);
+        int xb = std::max(b.first, b.second);
+        return xa < xb;
+    });
+
+    for (const auto &edge : sorted) {
+        int parent, child;
+        if (!findEdgeOrientation(start, edge.first, edge.second, parent, child))
+            continue;
+
+        if (usedNodes.count(parent) || usedNodes.count(child))
+            continue;
+
+        independent.emplace_back(parent, child);
+        usedNodes.insert(parent);
+        usedNodes.insert(child);
+    }
+
+    return independent;
+}
+
+} // namespace
 
 // Debug flag
 const bool DEBUG = false; // Turn off debug for cleaner testing output
@@ -234,38 +493,6 @@ std::pair<bool, std::pair<int, int>> findFreeEdge(const VectorRangeTreeMap &T_in
     return {false, {-1, -1}};
 }
 
-void generateAllIndependentSubsets(const std::vector<std::pair<int, int>> &edges, int index,
-                                   std::vector<std::pair<int, int>> &current,
-                                   std::vector<std::vector<std::pair<int, int>>> &result)
-{
-    if (index == edges.size())
-    {
-        result.push_back(current);
-        return;
-    }
-
-    // Choice 1: exclude current edge
-    generateAllIndependentSubsets(edges, index + 1, current, result);
-
-    // Choice 2: include current edge if it doesn't conflict
-    bool canInclude = true;
-    for (const auto &e : current)
-    {
-        if (areAdjacent(e, edges[index]))
-        {
-            canInclude = false;
-            break;
-        }
-    }
-
-    if (canInclude)
-    {
-        current.push_back(edges[index]);
-        generateAllIndependentSubsets(edges, index + 1, current, result);
-        current.pop_back();
-    }
-}
-
 std::vector<std::pair<int, int>> getIncidentEdges(const VectorRangeTreeMap &T, int node)
 {
     std::vector<std::pair<int, int>> incident;
@@ -344,31 +571,6 @@ partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>
     return {S1, S2};
 }
 
-// Generate independent subsets from union of edge pairs in S
-std::vector<std::vector<std::pair<int, int>>> generateIndependentSubsetsFromS(
-    const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S)
-{
-
-    // First, collect all unique edges from S
-    std::set<std::pair<int, int>> allEdges;
-    for (const auto &edgePair : S)
-    {
-        allEdges.insert(edgePair.first);
-        allEdges.insert(edgePair.second);
-    }
-
-    // Convert to vector for subset generation
-    std::vector<std::pair<int, int>> edgeVector(allEdges.begin(), allEdges.end());
-
-    // Generate independent subsets
-    std::vector<std::vector<std::pair<int, int>>> independentSubsets;
-    std::vector<std::pair<int, int>> current;
-
-    generateAllIndependentSubsets(edgeVector, 0, current, independentSubsets);
-
-    return independentSubsets;
-}
-
 /**
  * FLIPDISTTREE - Main algorithm
  * Maps to: FlipDistTree(T_init, T_final, k) pseudocode
@@ -377,10 +579,34 @@ bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_
 {
     debugPrint("Entering FlipDistTree with k=" + std::to_string(k));
 
+    if (k < 0)
+        return false;
+
+    std::string startKey = treeToString(T_init);
+    std::string targetKey = treeToString(T_final);
+    FlipMemoKey memoKey{startKey, targetKey, k};
+    if (auto it = g_flipDistMemo.find(memoKey); it != g_flipDistMemo.end())
+        return it->second;
+
     // BASE CASE: Check if trees are already identical
     if (TreesEqual(T_init, T_final))
     {
         debugPrint("Trees already equal, returning true");
+        g_flipDistMemo[memoKey] = true;
+        return true;
+    }
+
+    int lb = lowerBoundEdgeDifference(T_init, T_final);
+    if (lb > k)
+    {
+        debugPrint("Lower bound " + std::to_string(lb) + " exceeds k=" + std::to_string(k));
+        g_flipDistMemo[memoKey] = false;
+        return false;
+    }
+
+    if (tryCommonEdgeDecomposition(T_init, T_final, k))
+    {
+        g_flipDistMemo[memoKey] = true;
         return true;
     }
 
@@ -401,45 +627,23 @@ bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_
     }
 
     // PSEUDOCODE STEP 1: "Enumerate all subsets I of independent internal edges in T_init"
-    auto edges = getInternalEdges(T_init);
-    debugPrint("Found " + std::to_string(edges.size()) + " internal edges");
+    auto conflicts = collectConflictingEdges(T_init, T_final);
+    debugPrint("Conflicting edges: " + std::to_string(conflicts.size()));
 
-    std::vector<std::vector<std::pair<int, int>>> independentSubsets;
-    std::vector<std::pair<int, int>> current;
-
-    // PSEUDOCODE STEP 1.1: "For each internal edge e ∈ T_init, if no adjacent edge of e is already in I,
-    //                       branch on two choices: (1) include e in I; (2) exclude e from I"
-    generateAllIndependentSubsets(edges, 0, current, independentSubsets);
-    debugPrint("Generated " + std::to_string(independentSubsets.size()) + " independent subsets (all)");
-
-    // PSEUDOCODE STEP 1.2: "At the end of that branching, if I ≠ ∅ then:
-    //                       If FlipDistTree-I(T_init, T_final, |I|) returns True, then True"
-    for (size_t i = 0; i < independentSubsets.size(); i++)
+    auto independentSet = buildMaxIndependentSet(T_init, conflicts);
+    if (!independentSet.empty())
     {
-        const auto &subset = independentSubsets[i];
-        if (subset.empty())
-            continue; // Skip empty subsets (I ≠ ∅ requirement)
-
-        debugPrint("Trying subset " + std::to_string(i) + " with " + std::to_string(subset.size()) + " edges");
-
-        try
+        debugPrint("Max independent set size=" + std::to_string(independentSet.size()));
+        if (TreeDistI(T_init, T_final, k, independentSet))
         {
-            // Call TreeDistI (which is FlipDistTree-I from pseudocode)
-            if (TreeDistI(T_init, T_final, k, subset))
-            {
-                debugPrint("Found solution with subset " + std::to_string(i));
-                return true;
-            }
-        }
-        catch (...)
-        {
-            debugPrint("Exception in TreeDistI for subset " + std::to_string(i));
-            continue;
+            g_flipDistMemo[memoKey] = true;
+            return true;
         }
     }
 
     // PSEUDOCODE STEP 2: "Return False"
     debugPrint("No solution found, returning false");
+    g_flipDistMemo[memoKey] = false;
     return false;
 }
 
@@ -448,7 +652,11 @@ int FlipDistMinK(const VectorRangeTreeMap &T1, const VectorRangeTreeMap &T2, int
 {
     if (TreesEqual(T1, T2))
         return 0;
-    for (int k = 1; k <= k_max; ++k)
+    int lb0 = lowerBoundEdgeDifference(T1, T2);
+    if (lb0 > k_max)
+        return -1;
+    int start_k = std::max(1, lb0);
+    for (int k = start_k; k <= k_max; ++k)
     {
         if (FlipDistTree(T1, T2, k))
             return k;
@@ -894,41 +1102,10 @@ bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end
     }
     else
     {
-        // PSEUDOCODE STEP 2.1: "For each pair (eᵢ,eᵢ′) in S, branch on
-        //                       (a) include neither, (b) include eᵢ only, (c) include eᵢ′ only
-        //                       (skip choices that pick a non-edge or conflict with independence)."
-        debugPrint("TreeDistS: Implementing complete S branching");
-
-        // Generate all independent subsets from ⋃S (union of all edge pairs)
-        auto independentSubsetsFromS = generateIndependentSubsetsFromS(S);
-
-        debugPrint("TreeDistS: Generated " + std::to_string(independentSubsetsFromS.size()) + " independent subsets from S");
-
-        // Try each non-empty independent subset
-        for (size_t i = 0; i < independentSubsetsFromS.size(); i++)
-        {
-            const auto &subset = independentSubsetsFromS[i];
-            if (subset.empty())
-                continue;
-
-            debugPrint("TreeDistS: Trying S-subset " + std::to_string(i) + " with " + std::to_string(subset.size()) + " edges");
-
-            try
-            {
-                // PSEUDOCODE STEP 2.2: "If I ≠ ∅ do
-                //                       if TreeDist-I(T_init, T_end, k, I) returns true,"
-                if (TreeDistI(T_init, T_end, k, subset))
-                {
-                    debugPrint("TreeDistS: Found solution with S-subset " + std::to_string(i));
-                    return true;
-                }
-            }
-            catch (...)
-            {
-                debugPrint("TreeDistS: Exception with S-subset " + std::to_string(i));
-                continue;
-            }
-        }
+        debugPrint("TreeDistS: Implementing Li-Xia branching over S");
+        std::vector<std::pair<int,int>> chosen;
+        if (branchOnSPairs(T_init, T_end, k, S, 0, chosen))
+            return true;
     }
 
     // PSEUDOCODE STEP 3: "Return False"
@@ -1684,11 +1861,637 @@ void runComprehensiveTests()
     std::cout << std::string(80, '=') << std::endl;
 }
 
-int main()
+struct FlipStep {
+    int pivot{-1};
+    bool left{false};
+};
+
+struct FlipParentInfo {
+    std::string parent_key;
+    int pivot{-1};
+    bool left{false};
+};
+
+static bool buildCanonicalRotationPath(const VectorRangeTreeMap& start,
+                                       const VectorRangeTreeMap& goal,
+                                       std::vector<std::string>& path_out,
+                                       std::vector<FlipStep>& moves_out)
 {
-    // runComprehensiveTests();
-    for (int i=11; i<=13; i++){
-    testOppositeFansFixture(i);
+    path_out.clear();
+    moves_out.clear();
+
+    std::string startKey = treeToString(start);
+    std::string goalKey = treeToString(goal);
+    if (startKey == goalKey) {
+        path_out.push_back(treeToString(start));
+        return true;
+    }
+
+    struct Node {
+        VectorRangeTreeMap tree;
+        std::string key;
+    };
+
+    std::queue<Node> q;
+    std::unordered_set<std::string> visited;
+    std::unordered_map<std::string, FlipParentInfo> parent;
+
+    visited.insert(startKey);
+    parent.emplace(startKey, FlipParentInfo{"", -1, false});
+    q.push(Node{start, startKey});
+
+    bool found = false;
+    while (!q.empty() && !found) {
+        Node cur = std::move(q.front());
+        q.pop();
+
+        for (int v : cur.tree.original_nodes) {
+            if (cur.tree.getRightChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                auto tmp = cur.tree;
+                tmp.rotateLeft(v);
+                std::string key = treeToString(tmp);
+                if (visited.insert(key).second) {
+                    parent.emplace(key, FlipParentInfo{cur.key, v, true});
+                    if (key == goalKey) { found = true; break; }
+                    q.push(Node{std::move(tmp), key});
+                }
+            }
+            if (cur.tree.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                auto tmp = cur.tree;
+                tmp.rotateRight(v);
+                std::string key = treeToString(tmp);
+                if (visited.insert(key).second) {
+                    parent.emplace(key, FlipParentInfo{cur.key, v, false});
+                    if (key == goalKey) { found = true; break; }
+                    q.push(Node{std::move(tmp), key});
+                }
+            }
+        }
+    }
+
+    if (!found) {
+        path_out.push_back(treeToString(start));
+        return false;
+    }
+
+    std::vector<FlipParentInfo> moves;
+    std::string curKey = goalKey;
+    while (curKey != startKey) {
+        const FlipParentInfo& info = parent.at(curKey);
+        moves.push_back(info);
+        curKey = info.parent_key;
+    }
+    std::reverse(moves.begin(), moves.end());
+
+    VectorRangeTreeMap current = start;
+    path_out.push_back(treeToString(current));
+    for (const auto& step : moves) {
+        if (step.pivot >= 0) {
+            if (step.left) {
+                current.rotateLeft(step.pivot);
+            } else {
+                current.rotateRight(step.pivot);
+            }
+        }
+        path_out.push_back(treeToString(current));
+        moves_out.push_back(FlipStep{step.pivot, step.left});
+    }
+    return true;
+}
+
+static void printTreeAscii(const VectorRangeTreeMap& tree,
+                           std::ostream& os,
+                           const char* heading)
+{
+    os << heading << "\n";
+    if (tree.root == VectorRangeTreeMap::NO_CHILD) {
+        os << "  (empty)\n";
+        return;
+    }
+
+    std::function<void(int,const std::string&,bool)> rec =
+        [&](int node, const std::string& prefix, bool left) {
+            if (node == VectorRangeTreeMap::NO_CHILD || !tree.isOriginal(node)) return;
+
+            int right = tree.getRightChild(node);
+            int leftChild = tree.getLeftChild(node);
+            bool hasRight = (right != VectorRangeTreeMap::NO_CHILD) && tree.isOriginal(right);
+            bool hasLeft  = (leftChild != VectorRangeTreeMap::NO_CHILD) && tree.isOriginal(leftChild);
+
+            if (hasRight) rec(right, prefix + (left ? "│   " : "    "), false);
+
+            os << prefix;
+            if (!prefix.empty()) {
+                os << (left ? "└── " : "┌── ");
+            }
+            os << node << "\n";
+
+            if (hasLeft)  rec(leftChild, prefix + (left ? "    " : "│   "), true);
+        };
+
+    rec(tree.root, "", true);
+}
+
+static void logPathToStderr(const std::string& label,
+                            const VectorRangeTreeMap& start,
+                            const std::vector<FlipStep>& moves,
+                            bool complete,
+                            bool ascii)
+{
+    std::cerr << "[PATH] " << label
+              << " length=" << static_cast<int>(moves.size())
+              << " complete=" << (complete ? "yes" : "no") << "\n";
+
+    VectorRangeTreeMap current = start;
+    auto logState = [&](size_t step_index, const char* prefix) {
+        std::cerr << "  Step " << step_index << ' ' << prefix
+                  << canonicalTraversalString(current) << "\n";
+        if (ascii) {
+            printTreeAscii(current, std::cerr, "    ");
+        }
+    };
+
+    logState(0, "(start): ");
+    for (size_t i = 0; i < moves.size(); ++i) {
+        const FlipStep& mv = moves[i];
+        if (mv.pivot >= 0) {
+            if (mv.left) {
+                current.rotateLeft(mv.pivot);
+            } else {
+                current.rotateRight(mv.pivot);
+            }
+        }
+        std::string prefix = std::string("(") + (mv.left ? "rotateLeft" : "rotateRight")
+                            + " " + std::to_string(mv.pivot) + "): ";
+        logState(i + 1, prefix.c_str());
+    }
+    std::cerr.flush();
+}
+
+struct FlipCliOptions {
+    std::string program = "flipdist_asan";
+    std::string case_type = "comb";
+    int n = 5;
+    int count = 1;
+    long long seed = 12345;
+    int max_k = -1;
+    int bfs_cap = 64;
+    bool run_legacy = false;
+    double time_limit = 0.0;
+    std::size_t visited_cap = 0;
+    std::size_t queue_cap = 0;
+    bool fallback_bidir = false;
+    std::size_t bidir_cap = 0;
+    bool prefer_bidir = false;
+    bool emit_path = false;
+    bool path_ascii = false;
+};
+
+static void printUsage(const char *argv0)
+{
+    std::cerr << "Usage: " << argv0
+              << " [--case comb|random]"
+              << " [--n N]"
+              << " [--count C]"
+              << " [--seed S]"
+              << " [--program NAME]"
+              << " [--max-k K]"
+              << " [--bfs-cap CAP]"
+              << " [--emit-path]"
+              << " [--path-ascii]"
+              << " [--legacy-fixtures]\n";
+}
+
+static bool parseCliOptions(int argc, char **argv, FlipCliOptions &opts)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string arg = argv[i];
+        auto consume = [&](const std::string &name) -> std::string {
+            if (arg == name)
+            {
+                if (i + 1 >= argc)
+                {
+                    throw std::invalid_argument(name + " requires a value");
+                }
+                return std::string(argv[++i]);
+            }
+            auto pos = arg.find('=');
+            if (pos != std::string::npos && arg.substr(0, pos) == name)
+            {
+                return arg.substr(pos + 1);
+            }
+            return {};
+        };
+
+        if (arg == "--help" || arg == "-h")
+        {
+            printUsage(argv[0]);
+            std::exit(0);
+        }
+
+        if (auto value = consume("--case"); !value.empty())
+        {
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            opts.case_type = value;
+            continue;
+        }
+        if (auto value = consume("--n"); !value.empty())
+        {
+            opts.n = std::stoi(value);
+            continue;
+        }
+        if (auto value = consume("--count"); !value.empty())
+        {
+            opts.count = std::stoi(value);
+            continue;
+        }
+        if (auto value = consume("--seed"); !value.empty())
+        {
+            opts.seed = std::stoll(value);
+            continue;
+        }
+        if (auto value = consume("--program"); !value.empty())
+        {
+            opts.program = value;
+            continue;
+        }
+        if (auto value = consume("--max-k"); !value.empty())
+        {
+            opts.max_k = std::stoi(value);
+            continue;
+        }
+        if (auto value = consume("--bfs-cap"); !value.empty())
+        {
+            opts.bfs_cap = std::stoi(value);
+            continue;
+        }
+        if (auto value = consume("--time-limit"); !value.empty())
+        {
+            opts.time_limit = std::stod(value);
+            continue;
+        }
+        if (auto value = consume("--visited-cap"); !value.empty())
+        {
+            opts.visited_cap = static_cast<std::size_t>(std::stoull(value));
+            continue;
+        }
+        if (auto value = consume("--queue-cap"); !value.empty())
+        {
+            opts.queue_cap = static_cast<std::size_t>(std::stoull(value));
+            continue;
+        }
+        if (auto value = consume("--bidir-cap"); !value.empty())
+        {
+            opts.bidir_cap = static_cast<std::size_t>(std::stoull(value));
+            continue;
+        }
+        if (arg == "--fallback-bidir")
+        {
+            opts.fallback_bidir = true;
+            continue;
+        }
+        if (arg == "--prefer-bidir")
+        {
+            opts.prefer_bidir = true;
+            continue;
+        }
+        if (arg == "--legacy-fixtures" || arg == "--fixtures")
+        {
+            opts.run_legacy = true;
+            continue;
+        }
+        if (arg == "--emit-path")
+        {
+            opts.emit_path = true;
+            continue;
+        }
+        if (arg == "--path-ascii")
+        {
+            opts.path_ascii = true;
+            continue;
+        }
+
+        std::cerr << "Unknown argument: " << arg << "\n";
+        printUsage(argv[0]);
+        return false;
+    }
+    return true;
+}
+
+struct FlipCase
+{
+    VectorRangeTreeMap start;
+    VectorRangeTreeMap target;
+    long long seed;
+};
+
+static bool buildCase(const FlipCliOptions &opts, int index, FlipCase &out)
+{
+    if (opts.n <= 0)
+    {
+        std::cerr << "n must be positive\n";
+        return false;
+    }
+
+    if (opts.case_type == "comb")
+    {
+        Traversals left = makeCombTraversals(opts.n, /*rightComb=*/false);
+        Traversals right = makeCombTraversals(opts.n, /*rightComb=*/true);
+        out.start = VectorRangeTreeMap();
+        out.target = VectorRangeTreeMap();
+        out.start.build(left.preorder, left.inorder);
+        out.target.build(right.preorder, right.inorder);
+        out.seed = -1;
+        return out.start.root != VectorRangeTreeMap::NO_CHILD &&
+               out.target.root != VectorRangeTreeMap::NO_CHILD;
+    }
+
+    if (opts.case_type == "random")
+    {
+        long long pair_seed = opts.seed + index;
+        std::mt19937 rngA(static_cast<std::uint32_t>(pair_seed * 2 + 0));
+        std::mt19937 rngB(static_cast<std::uint32_t>(pair_seed * 2 + 1));
+        Traversals tA = makeRandomTraversals(opts.n, rngA);
+        Traversals tB = makeRandomTraversals(opts.n, rngB);
+        out.start = VectorRangeTreeMap();
+        out.target = VectorRangeTreeMap();
+        out.start.build(tA.preorder, tA.inorder);
+        out.target.build(tB.preorder, tB.inorder);
+        out.seed = pair_seed;
+        return out.start.root != VectorRangeTreeMap::NO_CHILD &&
+               out.target.root != VectorRangeTreeMap::NO_CHILD;
+    }
+
+    std::cerr << "Unsupported case type: " << opts.case_type << "\n";
+    return false;
+}
+
+struct FlipRun
+{
+    std::string program;
+    std::string case_type;
+    int n = 0;
+    long long seed = -1;
+    std::string direction;
+    int distance = -1;
+    int distance_flipdist = -1;
+    int distance_bfs = -1;
+    double time_ms = 0.0;
+    double time_ms_flipdist = 0.0;
+    double time_ms_bfs = 0.0;
+    std::size_t expanded = 0;
+    std::size_t enqueued = 0;
+    std::size_t visited = 0;
+    std::size_t max_queue = 0;
+    std::size_t duplicates = 0;
+    std::string status = "not_run";
+    std::string status_flipdist = "not_run";
+    std::string status_bfs = "not_run";
+    std::string solver = "flipdist";
+    std::string tree_a;
+    std::string tree_b;
+    int max_k = 0;
+    std::vector<std::string> path;
+    std::vector<FlipStep> moves;
+    bool path_complete = false;
+};
+
+static std::string escapeJson(const std::string &s)
+{
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (unsigned char c : s)
+    {
+        switch (c)
+        {
+        case '\"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\b':
+            out += "\\b";
+            break;
+        case '\f':
+            out += "\\f";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            if (c < 0x20)
+            {
+                char buf[7];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned int>(c));
+                out += buf;
+            }
+            else
+            {
+                out.push_back(static_cast<char>(c));
+            }
+        }
+    }
+    return out;
+}
+
+static std::string runToJson(const FlipRun &row)
+{
+    std::ostringstream out;
+    out.setf(std::ios::fixed, std::ios::floatfield);
+    out << std::setprecision(3);
+    auto toULL = [](std::size_t v)
+    { return static_cast<unsigned long long>(v); };
+
+    out << "{\"program\":\"" << escapeJson(row.program) << '"'
+        << ",\"case_type\":\"" << escapeJson(row.case_type) << '"'
+        << ",\"n\":" << row.n
+        << ",\"seed\":" << row.seed
+        << ",\"direction\":\"" << escapeJson(row.direction) << '"'
+        << ",\"distance\":" << row.distance
+        << ",\"distance_bfs\":" << row.distance_bfs
+        << ",\"time_ms\":" << row.time_ms
+        << ",\"time_ms_flipdist\":" << row.time_ms_flipdist
+        << ",\"time_ms_bfs\":" << row.time_ms_bfs
+        << ",\"expanded\":" << toULL(row.expanded)
+        << ",\"enqueued\":" << toULL(row.enqueued)
+        << ",\"visited\":" << toULL(row.visited)
+        << ",\"max_queue\":" << toULL(row.max_queue)
+        << ",\"duplicates\":" << toULL(row.duplicates)
+        << ",\"status\":\"" << escapeJson(row.status) << '"'
+        << ",\"status_flipdist\":\"" << escapeJson(row.status_flipdist) << '"'
+        << ",\"status_bfs\":\"" << escapeJson(row.status_bfs) << '"'
+        << ",\"solver\":\"" << escapeJson(row.solver) << '"'
+        << ",\"tree_a\":\"" << escapeJson(row.tree_a) << '"'
+        << ",\"tree_b\":\"" << escapeJson(row.tree_b) << '"'
+        << ",\"max_k\":" << row.max_k;
+
+    if (!row.path.empty()) {
+        out << ",\"path\":[";
+        for (size_t i = 0; i < row.path.size(); ++i) {
+            if (i) out << ',';
+            out << '"' << escapeJson(row.path[i]) << '"';
+        }
+        out << "]";
+        out << ",\"path_complete\":" << (row.path_complete ? "true" : "false");
+
+        out << ",\"moves\":[";
+        for (size_t i = 0; i < row.moves.size(); ++i) {
+            if (i) out << ',';
+            out << "{\"pivot\":" << row.moves[i].pivot
+                << ",\"direction\":\"" << (row.moves[i].left ? "left" : "right") << "\"}";
+        }
+        out << "]";
+    }
+
+    out << "}";
+    return out.str();
+}
+
+static FlipRun evaluateFlipCase(const VectorRangeTreeMap &start,
+                                const VectorRangeTreeMap &target,
+                                const FlipCliOptions &opts,
+                                const std::string &direction,
+                                long long seed_value,
+                                int n_nodes)
+{
+    FlipRun row;
+    row.program = opts.program;
+    row.case_type = opts.case_type;
+    row.n = n_nodes;
+    row.seed = seed_value;
+    row.direction = direction;
+    row.tree_a = canonicalTraversalString(start);
+    row.tree_b = canonicalTraversalString(target);
+    row.max_k = (opts.max_k > 0) ? opts.max_k : std::max(1, 2 * n_nodes + 6);
+
+    int bfs_cap = (opts.bfs_cap > 0) ? opts.bfs_cap : std::max(32, 2 * n_nodes + 6);
+
+    auto flip_start = std::chrono::steady_clock::now();
+    g_flipDistMemo.clear();
+    int dist = FlipDistMinK(start, target, row.max_k);
+    auto flip_end = std::chrono::steady_clock::now();
+    row.time_ms = std::chrono::duration<double, std::milli>(flip_end - flip_start).count();
+    row.distance = dist;
+    row.distance_flipdist = dist;
+    row.time_ms_flipdist = row.time_ms;
+    row.status = (dist >= 0) ? "ok" : "not_found";
+    row.status_flipdist = row.status;
+
+    auto bfs_start = std::chrono::steady_clock::now();
+    int bfs_dist = MinRotationsBFS(start, target, bfs_cap);
+    auto bfs_end = std::chrono::steady_clock::now();
+    row.time_ms_bfs = std::chrono::duration<double, std::milli>(bfs_end - bfs_start).count();
+    row.distance_bfs = bfs_dist;
+    row.status_bfs = (bfs_dist >= 0) ? "ok" : "cap";
+
+    const bool flip_ok = (row.status == "ok");
+    const bool bfs_ok = (row.status_bfs == "ok");
+
+    if (bfs_ok && (!flip_ok || row.distance != row.distance_bfs))
+    {
+        row.status = flip_ok ? "bfs_override" : "bfs_only";
+        row.distance = row.distance_bfs;
+        row.time_ms = row.time_ms_bfs;
+        row.solver = "bfs";
+        std::cerr << "[WARN] flipdist mismatch resolved via BFS"
+                  << " case=" << row.case_type
+                  << " n=" << row.n
+                  << " seed=" << row.seed
+                  << " dir=" << row.direction
+                  << " flipdist=" << row.distance_flipdist
+                  << " bfs=" << row.distance_bfs
+                  << "\n";
+    }
+
+    if (opts.emit_path && row.distance >= 0) {
+        std::vector<std::string> path;
+        std::vector<FlipStep> moves;
+        bool complete = buildCanonicalRotationPath(start, target, path, moves);
+        row.path = std::move(path);
+        row.moves = std::move(moves);
+        row.path_complete = complete;
+    }
+
+    return row;
+}
+
+int main(int argc, char **argv)
+{
+    FlipCliOptions opts;
+    try
+    {
+        if (!parseCliOptions(argc, argv, opts))
+        {
+            return 1;
+        }
+    }
+    catch (const std::exception &ex)
+    {
+        std::cerr << "Argument error: " << ex.what() << "\n";
+        printUsage(argv[0]);
+        return 1;
+    }
+
+    if (opts.run_legacy)
+    {
+        for (int n_polygon = 11; n_polygon <= 13; ++n_polygon)
+        {
+            testOppositeFansFixture(n_polygon);
+        }
+        return 0;
+    }
+
+    if (opts.n <= 0)
+    {
+        std::cerr << "n must be positive\n";
+        return 1;
+    }
+    if (opts.count <= 0)
+    {
+        std::cerr << "count must be positive\n";
+        return 1;
+    }
+
+    for (int idx = 0; idx < opts.count; ++idx)
+    {
+        FlipCase instance;
+        if (!buildCase(opts, idx, instance))
+        {
+            std::cerr << "Failed to build case index " << idx << "\n";
+            return 1;
+        }
+
+        int n_nodes = static_cast<int>(instance.start.original_nodes.size());
+        FlipRun forward = evaluateFlipCase(instance.start, instance.target, opts, "a->b", instance.seed, n_nodes);
+        std::cout << runToJson(forward) << "\n";
+        std::cout.flush();
+        if (opts.emit_path && !forward.path.empty()) {
+            logPathToStderr(forward.case_type + " " + forward.direction,
+                            instance.start,
+                            forward.moves,
+                            forward.path_complete,
+                            opts.path_ascii);
+        }
+
+        FlipRun reverse = evaluateFlipCase(instance.target, instance.start, opts, "b->a", instance.seed, n_nodes);
+        std::cout << runToJson(reverse) << "\n";
+        std::cout.flush();
+        if (opts.emit_path && !reverse.path.empty()) {
+            logPathToStderr(reverse.case_type + " " + reverse.direction,
+                            instance.target,
+                            reverse.moves,
+                            reverse.path_complete,
+                            opts.path_ascii);
+        }
     }
 
     return 0;

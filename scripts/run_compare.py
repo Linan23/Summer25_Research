@@ -129,8 +129,11 @@ def write_csv(cfg, merged_rows):
             "seed",
             "direction",
             "distance_cpp",
+            "distance_cpp_bfs",
             "distance_java",
             "time_ms_cpp",
+            "time_ms_cpp_flipdist",
+            "time_ms_cpp_bfs",
             "time_ms_java",
             "expanded_cpp",
             "expanded_java",
@@ -143,7 +146,10 @@ def write_csv(cfg, merged_rows):
             "duplicates_cpp",
             "duplicates_java",
             "status_cpp",
+            "status_cpp_flipdist",
+            "status_cpp_bfs",
             "status_java",
+            "max_k_cpp",
             "solver_cpp",
             "solver_java",
             "tree_a",
@@ -170,6 +176,18 @@ def write_csv(cfg, merged_rows):
                 "tree_a": cpp_row.get("tree_a"),
                 "tree_b": cpp_row.get("tree_b"),
             }
+            if "distance_bfs" in cpp_row:
+                out["distance_cpp_bfs"] = cpp_row.get("distance_bfs")
+            if "time_ms_flipdist" in cpp_row:
+                out["time_ms_cpp_flipdist"] = cpp_row.get("time_ms_flipdist")
+            if "time_ms_bfs" in cpp_row:
+                out["time_ms_cpp_bfs"] = cpp_row.get("time_ms_bfs")
+            if "status_flipdist" in cpp_row:
+                out["status_cpp_flipdist"] = cpp_row.get("status_flipdist")
+            if "status_bfs" in cpp_row:
+                out["status_cpp_bfs"] = cpp_row.get("status_bfs")
+            if "max_k" in cpp_row:
+                out["max_k_cpp"] = cpp_row.get("max_k")
             if java_row:
                 out.update({
                     "distance_java": java_row.get("distance"),
@@ -189,6 +207,10 @@ def auto_fill_fallback(cfg, cpp_rows):
     if getattr(cfg, "use_bidir", False):
         return cpp_rows
     if getattr(cfg, "disable_auto_bidir", False):
+        return cpp_rows
+    if getattr(cfg, "cpp_program", "") == "flipdist_asan":
+        return cpp_rows
+    if any(row.get("solver") == "flipdist" for row in cpp_rows):
         return cpp_rows
 
     pending = {
