@@ -7,12 +7,15 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <queue>
+#include <array>
 #include <climits>
 #include <cassert>
 #include <functional>
+#include <optional>
 #include <chrono>
 #include <random>
 #include <iomanip>
+#include <limits>
 #include <fstream>
 #include <deque>
 #include <sstream>
@@ -22,17 +25,64 @@
 #include <cstdint>
 #include <stdexcept>
 
+struct DiagonalEdge
+{
+    std::pair<int,int> diag; // polygon endpoints (L,R), L < R
+    int parent;              // oriented parent node in the current tree
+    int child;               // oriented child node in the current tree
+};
+
+extern const bool DEBUG;
+void debugPrint(const std::string &msg);
+
 int MinRotationsBFS(const VectorRangeTreeMap &A, const VectorRangeTreeMap &B, int cap);
 bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k);
+int FlipDistMinK(const VectorRangeTreeMap &T1, const VectorRangeTreeMap &T2, int k_max);
 bool TreeDistI(const VectorRangeTreeMap &T_init,
                const VectorRangeTreeMap &T_final,
                int k,
-               const std::vector<std::pair<int, int>> &I);
+               const std::vector<std::pair<int, int>> &I,
+               bool allow_independent_retry = true);
 bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end, int k,
-               const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S);
+               const std::vector<std::pair<DiagonalEdge, DiagonalEdge>> &S,
+               bool allow_independent_retry = true);
 bool hasParentChildEdge(const VectorRangeTreeMap &T, int parent, int child);
 
+std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap &T);
+std::vector<std::pair<int,int>> getIncidentEdges(const VectorRangeTreeMap &T, int node);
+struct VertexEdgeCandidate
+{
+    std::pair<int,int> edge;
+    int other_index;
+};
+static std::vector<VertexEdgeCandidate> collectVertexEdgeCandidates(const VectorRangeTreeMap &tree,
+                                                                    int vertex);
+static DiagonalEdge makeDiagonalEdge(const VectorRangeTreeMap &T, int parent, int child);
+
 namespace {
+
+constexpr bool ENABLE_EAR_CONTRACTION = false;
+
+static std::string formatNodeSet(const VectorRangeTreeMap &tree)
+{
+    std::vector<int> nodes(tree.original_nodes.begin(), tree.original_nodes.end());
+    std::sort(nodes.begin(), nodes.end());
+    std::ostringstream oss;
+    oss << "{";
+    for (size_t i = 0; i < nodes.size(); ++i)
+    {
+        if (i > 0)
+            oss << ",";
+        oss << nodes[i];
+    }
+    oss << "}";
+    return oss.str();
+}
+
+static std::string formatRange(const std::pair<int,int> &r)
+{
+    return "[" + std::to_string(r.first) + "," + std::to_string(r.second) + ")";
+}
 
 struct FlipMemoKey {
     std::string start;
@@ -110,26 +160,35 @@ static bool edgesShareEndpoint(const std::pair<int,int>& a,
 static bool branchOnSPairs(const VectorRangeTreeMap &T_init,
                            const VectorRangeTreeMap &T_end,
                            int k,
-                           const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S,
+                           const std::vector<std::pair<DiagonalEdge, DiagonalEdge>> &S,
                            std::size_t index,
-                           std::vector<std::pair<int,int>> &chosen)
+                           std::vector<std::pair<int,int>> &chosen,
+                           bool allow_independent_retry)
 {
     if (index == S.size())
     {
         if (chosen.empty()) return false;
-        return ::TreeDistI(T_init, T_end, k, chosen);
+        return ::TreeDistI(T_init, T_end, k, chosen, allow_independent_retry);
     }
 
-    if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen))
+    if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen, allow_independent_retry))
         return true;
 
     const auto &pair = S[index];
-    const std::pair<int,int> options[2] = {pair.first, pair.second};
+    const DiagonalEdge options[2] = {pair.first, pair.second};
 
-    for (const auto &edge : options)
+    for (const auto &opt : options)
     {
+        std::pair<int,int> edge = {opt.parent, opt.child};
         if (!::hasParentChildEdge(T_init, edge.first, edge.second))
+        {
+            if (DEBUG)
+            {
+                debugPrint("branchOnSPairs: edge (" + std::to_string(edge.first) + "," +
+                           std::to_string(edge.second) + ") is not a parent-child edge");
+            }
             continue;
+        }
 
         bool conflict = false;
         for (const auto &sel : chosen)
@@ -139,13 +198,15 @@ static bool branchOnSPairs(const VectorRangeTreeMap &T_init,
         if (conflict) continue;
 
         chosen.push_back(edge);
-        if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen))
+        if (branchOnSPairs(T_init, T_end, k, S, index + 1, chosen, allow_independent_retry))
             return true;
         chosen.pop_back();
     }
 
     return false;
 }
+
+int countInternalEdges(const VectorRangeTreeMap &T);
 
 static bool tryCommonEdgeDecomposition(const VectorRangeTreeMap &start,
                                        const VectorRangeTreeMap &target,
@@ -198,23 +259,11 @@ static bool tryCommonEdgeDecomposition(const VectorRangeTreeMap &start,
         if (startRestTree.original_nodes != targetRestTree.original_nodes)
             continue;
 
-        int lbChild = lowerBoundEdgeDifference(startChildTree, targetChildTree);
-        int lbRest  = lowerBoundEdgeDifference(startRestTree, targetRestTree);
-        if (lbChild + lbRest > k) continue;
-
-        for (int budgetChild = lbChild; budgetChild <= k - lbRest; ++budgetChild) {
-            if (!FlipDistTree(startChildTree, targetChildTree, budgetChild)) continue;
-            int remaining = k - budgetChild;
-            if (FlipDistTree(startRestTree, targetRestTree, remaining)) {
-                return true;
-            }
-        }
-
-        int distChild = MinRotationsBFS(startChildTree, targetChildTree, k);
+        int distChild = FlipDistMinK(startChildTree, targetChildTree, k);
         if (distChild < 0) continue;
         int remaining = k - distChild;
         if (remaining < 0) continue;
-        int distRest = MinRotationsBFS(startRestTree, targetRestTree, remaining);
+        int distRest = FlipDistMinK(startRestTree, targetRestTree, remaining);
         if (distRest < 0) continue;
         if (distChild + distRest <= k) {
             return true;
@@ -224,48 +273,488 @@ static bool tryCommonEdgeDecomposition(const VectorRangeTreeMap &start,
     return false;
 }
 
-static std::vector<std::pair<int,int>> collectConflictingEdges(
+static std::unordered_map<std::pair<int,int>, int, PairHash, PairEq>
+buildEndpointIndex(const VectorRangeTreeMap &tree)
+{
+    std::unordered_map<std::pair<int,int>, int, PairHash, PairEq> index;
+    index.reserve(tree.original_nodes.size());
+    for (int node : tree.original_nodes)
+    {
+        auto endpoints = tree.diagonalEndpoints(node);
+        if (endpoints.first < 0 || endpoints.second < 0) continue;
+        if (endpoints.first >= endpoints.second) continue;
+        // boundary edges (adjacent vertices) do not correspond to internal diagonals.
+        if (endpoints.second - endpoints.first <= 1) continue;
+        index.emplace(endpoints, node);
+    }
+    return index;
+}
+
+// Builds a map from diagonal endpoints (L,R) to the node currently realising it.
+// This is a thin wrapper around buildEndpointIndex kept for readability.
+static std::unordered_map<std::pair<int,int>, int, PairHash, PairEq>
+buildDiagonalNodeMap(const VectorRangeTreeMap &tree)
+{
+    return buildEndpointIndex(tree);
+}
+
+static std::string canonicalEdgePairKey(const std::pair<int,int> &a,
+                                        const std::pair<int,int> &b)
+{
+    auto norm = [](std::pair<int,int> e) {
+        if (e.first < e.second) return e;
+        return std::make_pair(e.second, e.first);
+    };
+    auto ea = norm(a);
+    auto eb = norm(b);
+    if (ea > eb)
+        std::swap(ea, eb);
+    return std::to_string(ea.first) + "," + std::to_string(ea.second) + "|" +
+           std::to_string(eb.first) + "," + std::to_string(eb.second);
+}
+
+static int polygonVertexCount(const VectorRangeTreeMap &tree)
+{
+    if (tree.original_nodes.empty())
+        return 0;
+    int maxVertex = 0;
+    for (int node : tree.original_nodes)
+    {
+        auto range = tree.getRange(node);
+        maxVertex = std::max({maxVertex, range.first, range.second});
+    }
+    return std::max(0, maxVertex + 1);
+}
+
+static std::optional<std::pair<std::pair<int,int>, std::pair<int,int>>>
+pickBoundingEdges(const std::vector<VertexEdgeCandidate> &candidates,
+                  int baseIndex,
+                  int targetIndex,
+                  int polygonVertices)
+{
+    if (candidates.size() < 2)
+        return std::nullopt;
+
+    if (polygonVertices <= 0)
+        return std::nullopt;
+
+    auto normAngle = [&](int vertexIndex) -> int {
+        long long raw = static_cast<long long>(vertexIndex) - static_cast<long long>(baseIndex);
+        long long mod = raw % polygonVertices;
+        if (mod < 0)
+            mod += polygonVertices;
+        return static_cast<int>(mod);
+    };
+
+    const int targetAngle = normAngle(targetIndex);
+
+    std::vector<std::pair<int, const VertexEdgeCandidate *>> ordered;
+    ordered.reserve(candidates.size());
+    for (const auto &cand : candidates)
+    {
+        ordered.emplace_back(normAngle(cand.other_index), &cand);
+    }
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+
+    const VertexEdgeCandidate *lower = nullptr;
+    const VertexEdgeCandidate *upper = nullptr;
+
+    for (const auto &entry : ordered)
+    {
+        if (entry.first == targetAngle)
+        {
+            // Target diagonal already present; nothing to branch on.
+            return std::nullopt;
+        }
+        if (entry.first < targetAngle)
+        {
+            lower = entry.second;
+        }
+        else if (entry.first > targetAngle && !upper)
+        {
+            upper = entry.second;
+            break;
+        }
+    }
+
+    if (!lower && !ordered.empty())
+    {
+        lower = ordered.back().second;
+    }
+    if (!upper && !ordered.empty())
+    {
+        upper = ordered.front().second;
+    }
+
+    if (!lower || !upper || lower->edge == upper->edge)
+        return std::nullopt;
+
+    return std::make_pair(lower->edge, upper->edge);
+}
+
+static std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>
+buildPartnerPairsLegacy(const VectorRangeTreeMap &start,
+                        const VectorRangeTreeMap &target)
+{
+    std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> partners;
+    auto targetIndex = buildEndpointIndex(target);
+    auto startIndex  = buildEndpointIndex(start);
+    std::unordered_set<std::string> seen;
+    const int polygonVertices = polygonVertexCount(start);
+
+    auto orientEdge = [&](const std::pair<int,int> &edge)
+        -> std::optional<std::pair<int,int>>
+    {
+        if (hasParentChildEdge(start, edge.first, edge.second))
+            return edge;
+        if (hasParentChildEdge(start, edge.second, edge.first))
+            return std::make_pair(edge.second, edge.first);
+        return std::nullopt;
+    };
+
+    for (int node : start.original_nodes)
+    {
+        auto diag = start.diagonalEndpoints(node);
+        if (diag.first < 0 || diag.second <= diag.first)
+            continue;
+        if (targetIndex.count(diag))
+            continue;
+
+        auto incident = getIncidentEdges(start, node);
+        if (incident.size() < 2)
+            continue;
+
+        for (size_t i = 0; i + 1 < incident.size(); ++i)
+        {
+            for (size_t j = i + 1; j < incident.size(); ++j)
+            {
+                auto maybeA = orientEdge(incident[i]);
+                auto maybeB = orientEdge(incident[j]);
+                if (!maybeA || !maybeB)
+                    continue;
+                auto a = *maybeA;
+                auto b = *maybeB;
+                std::string key = canonicalEdgePairKey(a, b);
+                if (seen.insert(key).second)
+                {
+                    partners.emplace_back(a, b);
+                }
+            }
+        }
+    }
+
+    for (const auto &entry : targetIndex)
+    {
+        const auto &diag = entry.first;
+        if (startIndex.count(diag))
+            continue;
+
+        int left = diag.first;
+        int right = diag.second;
+
+        int leftIndex = left;
+        int rightIndex = right;
+
+        auto leftInfos = collectVertexEdgeCandidates(start, left);
+        if (DEBUG && left == 1 && right == 4)
+        {
+            std::string log = "Left candidates for diag (1,4): ";
+            for (const auto &c : leftInfos)
+            {
+                log += "(" + std::to_string(c.edge.first) + "," + std::to_string(c.edge.second) +
+                       ";other=" + std::to_string(c.other_index) + ") ";
+            }
+            debugPrint(log);
+        }
+        if (DEBUG && left == 2 && right == 5)
+        {
+            std::string log = "Left candidates for diag (2,5): ";
+            for (const auto &c : leftInfos)
+            {
+                log += "(" + std::to_string(c.edge.first) + "," + std::to_string(c.edge.second) +
+                       ";other=" + std::to_string(c.other_index) + ") ";
+            }
+            debugPrint(log);
+        }
+        if (auto pair = pickBoundingEdges(leftInfos, leftIndex, rightIndex, polygonVertices))
+        {
+            auto maybeA = orientEdge(pair->first);
+            auto maybeB = orientEdge(pair->second);
+            if (maybeA && maybeB)
+            {
+                auto a = *maybeA;
+                auto b = *maybeB;
+                auto key = canonicalEdgePairKey(a, b);
+                if (seen.insert(key).second)
+                {
+                    partners.emplace_back(a, b);
+                    if (DEBUG)
+                    {
+                        debugPrint("Partner wedge L for diag (" + std::to_string(left) + "," + std::to_string(right) +
+                                   ") -> (" + std::to_string(a.first) + "," + std::to_string(a.second) +
+                                   ") and (" + std::to_string(b.first) + "," + std::to_string(b.second) + ")");
+                    }
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i + 1 < leftInfos.size(); ++i)
+            {
+                for (size_t j = i + 1; j < leftInfos.size(); ++j)
+                {
+                auto maybeA = orientEdge(leftInfos[i].edge);
+                auto maybeB = orientEdge(leftInfos[j].edge);
+                if (!maybeA || !maybeB) continue;
+                auto a = *maybeA;
+                auto b = *maybeB;
+                auto key = canonicalEdgePairKey(a, b);
+                if (seen.insert(key).second)
+                    partners.emplace_back(a, b);
+            }
+        }
+        }
+
+        auto rightInfos = collectVertexEdgeCandidates(start, right);
+        if (DEBUG && left == 1 && right == 4)
+        {
+            std::string log = "Right candidates for diag (1,4): ";
+            for (const auto &c : rightInfos)
+            {
+                log += "(" + std::to_string(c.edge.first) + "," + std::to_string(c.edge.second) +
+                       ";other=" + std::to_string(c.other_index) + ") ";
+            }
+            debugPrint(log);
+        }
+        if (DEBUG && left == 2 && right == 5)
+        {
+            std::string log = "Right candidates for diag (2,5): ";
+            for (const auto &c : rightInfos)
+            {
+                log += "(" + std::to_string(c.edge.first) + "," + std::to_string(c.edge.second) +
+                       ";other=" + std::to_string(c.other_index) + ") ";
+            }
+            debugPrint(log);
+        }
+        if (auto pair = pickBoundingEdges(rightInfos, rightIndex, leftIndex, polygonVertices))
+        {
+            auto maybeA = orientEdge(pair->first);
+            auto maybeB = orientEdge(pair->second);
+            if (maybeA && maybeB)
+            {
+                auto a = *maybeA;
+                auto b = *maybeB;
+                auto key = canonicalEdgePairKey(a, b);
+                if (seen.insert(key).second)
+                {
+                    partners.emplace_back(a, b);
+                    if (DEBUG)
+                    {
+                        debugPrint("Partner wedge R for diag (" + std::to_string(left) + "," + std::to_string(right) +
+                                   ") -> (" + std::to_string(a.first) + "," + std::to_string(a.second) +
+                                   ") and (" + std::to_string(b.first) + "," + std::to_string(b.second) + ")");
+                    }
+                }
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i + 1 < rightInfos.size(); ++i)
+            {
+                for (size_t j = i + 1; j < rightInfos.size(); ++j)
+                {
+                    auto maybeA = orientEdge(rightInfos[i].edge);
+                    auto maybeB = orientEdge(rightInfos[j].edge);
+                    if (!maybeA || !maybeB) continue;
+                    auto a = *maybeA;
+                    auto b = *maybeB;
+                    auto key = canonicalEdgePairKey(a, b);
+                    if (seen.insert(key).second)
+                        partners.emplace_back(a, b);
+                }
+            }
+        }
+    }
+
+    return partners;
+}
+
+// DiagonalEdge wrapper around legacy partner pairs.
+static std::vector<std::pair<DiagonalEdge, DiagonalEdge>>
+buildPartnerPairs(const VectorRangeTreeMap &start,
+                  const VectorRangeTreeMap &target)
+{
+    auto legacyPairs = buildPartnerPairsLegacy(start, target);
+    std::vector<std::pair<DiagonalEdge, DiagonalEdge>> out;
+    out.reserve(legacyPairs.size());
+    for (const auto &p : legacyPairs)
+    {
+        out.emplace_back(makeDiagonalEdge(start, p.first.first, p.first.second),
+                         makeDiagonalEdge(start, p.second.first, p.second.second));
+    }
+    return out;
+}
+
+static bool contractSharedEar(VectorRangeTreeMap &start,
+                              VectorRangeTreeMap &target)
+{
+    if (start.root == VectorRangeTreeMap::NO_CHILD ||
+        target.root == VectorRangeTreeMap::NO_CHILD)
+        return false;
+
+    auto startIndex  = buildEndpointIndex(start);
+    auto targetIndex = buildEndpointIndex(target);
+
+    for (const auto &entry : startIndex)
+    {
+        const auto &key = entry.first; // (L,R)
+        auto itTarget = targetIndex.find(key);
+        if (itTarget == targetIndex.end()) continue;
+
+        int nodeStart  = entry.second;
+        int nodeTarget = itTarget->second;
+
+        auto parentRangeStart  = start.getRange(nodeStart);
+        auto parentRangeTarget = target.getRange(nodeTarget);
+
+        int children[2] = { start.getLeftChild(nodeStart), start.getRightChild(nodeStart) };
+
+        for (int child : children)
+        {
+            if (child == VectorRangeTreeMap::NO_CHILD) continue;
+            if (!start.isOriginal(child)) continue;
+
+            auto childRange = start.getRange(child);
+            if (childRange.first >= childRange.second) continue;
+
+            auto startParts  = VectorRangeTreeMap::partitionAlongEdge(start,  parentRangeStart,  childRange);
+            auto targetParts = VectorRangeTreeMap::partitionAlongEdge(target, parentRangeTarget, childRange);
+
+            const auto &startChildTree   = startParts.first;
+            const auto &startComplement  = startParts.second;
+            const auto &targetChildTree  = targetParts.first;
+            const auto &targetComplement = targetParts.second;
+
+            if (startChildTree.original_nodes == targetChildTree.original_nodes &&
+                TreesEqual(startChildTree, targetChildTree))
+            {
+                start  = startComplement;
+                target = targetComplement;
+                return true;
+            }
+
+            if (startComplement.original_nodes == targetComplement.original_nodes &&
+                TreesEqual(startComplement, targetComplement))
+            {
+                start  = startChildTree;
+                target = targetChildTree;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static std::vector<DiagonalEdge> collectConflictingEdges(
         const VectorRangeTreeMap &start,
         const VectorRangeTreeMap &target)
 {
-    std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetEdgesDirected;
-    target.collectEdges(target.root, targetEdgesDirected);
-    std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetUndirected;
-    for (const auto &edge : targetEdgesDirected) {
-        targetUndirected.insert(makeUndirectedPair(edge.first, edge.second));
-    }
+    auto startIndex  = buildEndpointIndex(start);
+    auto targetIndex = buildEndpointIndex(target);
 
-    std::vector<std::pair<int,int>> conflicts;
-    std::unordered_set<std::pair<int,int>, PairHash, PairEq> startEdgesDirected;
-    start.collectEdges(start.root, startEdgesDirected);
-    for (const auto &edge : startEdgesDirected) {
-        if (!targetUndirected.count(makeUndirectedPair(edge.first, edge.second))) {
-            conflicts.push_back(edge);
+    std::vector<DiagonalEdge> conflicts;
+    conflicts.reserve(startIndex.size());
+
+    auto makeOriented = [&](int parent, int child, const std::pair<int,int>& diag) -> DiagonalEdge {
+        return DiagonalEdge{diag, parent, child};
+    };
+
+    for (const auto &entry : startIndex)
+    {
+        const auto &diag = entry.first;
+        if (targetIndex.count(diag))
+            continue;
+
+        int node = entry.second;
+        if (!start.isOriginal(node))
+            continue;
+
+        int parent = start.getParent(node);
+        if (parent != VectorRangeTreeMap::NO_PARENT && start.isOriginal(parent))
+        {
+            conflicts.push_back(makeOriented(parent, node, diag));
+            continue;
+        }
+
+        int left = start.getLeftChild(node);
+        if (left != VectorRangeTreeMap::NO_CHILD && start.isOriginal(left))
+        {
+            conflicts.push_back(makeOriented(node, left, diag));
+            continue;
+        }
+
+        int right = start.getRightChild(node);
+        if (right != VectorRangeTreeMap::NO_CHILD && start.isOriginal(right))
+        {
+            conflicts.push_back(makeOriented(node, right, diag));
+            continue;
         }
     }
+
+    if (conflicts.empty())
+    {
+        // Fallback to edge-based difference as before (e.g., when diagonals coincide but orientation differs).
+        std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetEdgesDirected;
+        target.collectEdges(target.root, targetEdgesDirected);
+        std::unordered_set<std::pair<int,int>, PairHash, PairEq> targetUndirected;
+        for (const auto &edge : targetEdgesDirected)
+            targetUndirected.insert(makeUndirectedPair(edge.first, edge.second));
+
+        std::unordered_set<std::pair<int,int>, PairHash, PairEq> startEdgesDirected;
+        start.collectEdges(start.root, startEdgesDirected);
+        for (const auto &edge : startEdgesDirected)
+        {
+            if (!targetUndirected.count(makeUndirectedPair(edge.first, edge.second)))
+            {
+                auto diag = start.diagonalEndpoints(edge.second);
+                conflicts.push_back(makeOriented(edge.first, edge.second, diag));
+            }
+        }
+    }
+
     return conflicts;
 }
 
+
+int countInternalEdges(const VectorRangeTreeMap &T)
+{
+    return ::getInternalEdges(T).size();
+}
+
+
+
 static std::vector<std::pair<int,int>> buildMaxIndependentSet(
         const VectorRangeTreeMap &start,
-        const std::vector<std::pair<int,int>> &conflicts)
+        const std::vector<DiagonalEdge> &conflicts)
 {
     std::vector<std::pair<int,int>> independent;
     std::unordered_set<int> usedNodes;
 
-    std::vector<std::pair<int,int>> sorted = conflicts;
+    std::vector<DiagonalEdge> sorted = conflicts;
     std::sort(sorted.begin(), sorted.end(), [](const auto &a, const auto &b) {
-        int ma = std::min(a.first, a.second);
-        int mb = std::min(b.first, b.second);
-        if (ma != mb) return ma < mb;
-        int xa = std::max(a.first, a.second);
-        int xb = std::max(b.first, b.second);
-        return xa < xb;
+        int widthA = a.diag.second - a.diag.first;
+        int widthB = b.diag.second - b.diag.first;
+        if (widthA != widthB) return widthA > widthB;
+        if (a.parent != b.parent) return a.parent < b.parent;
+        return a.child < b.child;
     });
 
     for (const auto &edge : sorted) {
-        int parent, child;
-        if (!findEdgeOrientation(start, edge.first, edge.second, parent, child))
+        int parent = edge.parent;
+        int child  = edge.child;
+        if (!start.isOriginal(parent) || !start.isOriginal(child))
             continue;
 
         if (usedNodes.count(parent) || usedNodes.count(child))
@@ -279,10 +768,76 @@ static std::vector<std::pair<int,int>> buildMaxIndependentSet(
     return independent;
 }
 
+static bool enumerateIndependentSetsRecursive(
+        const VectorRangeTreeMap &start,
+        const VectorRangeTreeMap &target,
+        int k,
+        const std::vector<std::pair<int,int>> &edges,
+        size_t index,
+        std::vector<std::pair<int,int>> &current,
+        std::vector<char> &used,
+        bool allow_independent_retry)
+{
+    if ((int)current.size() > k)
+        return false;
+
+    if (index == edges.size())
+    {
+        return TreeDistI(start, target, k, current, allow_independent_retry);
+    }
+
+    const auto &edge = edges[index];
+
+    // Try including the current edge first so we prioritise larger independent sets.
+    if (edge.first >= 0 && edge.first < (int)used.size() &&
+        edge.second >= 0 && edge.second < (int)used.size() &&
+        !used[edge.first] && !used[edge.second])
+    {
+        used[edge.first]  = 1;
+        used[edge.second] = 1;
+        current.push_back(edge);
+        if (enumerateIndependentSetsRecursive(start, target, k, edges, index + 1, current, used, allow_independent_retry))
+            return true;
+        current.pop_back();
+        used[edge.first]  = 0;
+        used[edge.second] = 0;
+    }
+
+    // Then try skipping it (which eventually yields the empty-set call into TreeDistI).
+    return enumerateIndependentSetsRecursive(start, target, k, edges, index + 1, current, used, allow_independent_retry);
+}
+
+static bool exploreIndependentSets(const VectorRangeTreeMap &start,
+                                   const VectorRangeTreeMap &target,
+                                   int k,
+                                   std::vector<std::pair<int,int>> edges,
+                                   bool allow_independent_retry = true)
+{
+    std::sort(edges.begin(), edges.end(), [&](const auto &lhs, const auto &rhs) {
+        auto rangeL = start.getRange(lhs.second);
+        auto rangeR = start.getRange(rhs.second);
+        int widthL = rangeL.second - rangeL.first;
+        int widthR = rangeR.second - rangeR.first;
+        if (widthL != widthR)
+            return widthL > widthR; // prefer wider diagonals first
+        if (lhs.first != rhs.first)
+            return lhs.first < rhs.first;
+        return lhs.second < rhs.second;
+    });
+
+    std::vector<std::pair<int,int>> current;
+    current.reserve(edges.size());
+    int usedSize = std::max(start.max_node_value, target.max_node_value) + 2;
+    size_t allocSize = usedSize > 0 ? static_cast<size_t>(usedSize) : 0;
+    std::vector<char> used(allocSize, 0);
+
+    return enumerateIndependentSetsRecursive(start, target, k, edges, 0, current, used, allow_independent_retry);
+}
+
 } // namespace
 
 // Debug flag
-const bool DEBUG = false; // Turn off debug for cleaner testing output
+const bool DEBUG = (std::getenv("FLIPDIST_DEBUG") != nullptr); // enable by setting env var
 
 void debugPrint(const std::string &msg)
 {
@@ -340,15 +895,22 @@ std::vector<std::pair<int, int>> getInternalEdges(const VectorRangeTreeMap &T)
     return edges;
 }
 
-int countInternalEdges(const VectorRangeTreeMap &T)
-{
-    return getInternalEdges(T).size();
-}
-
 bool areAdjacent(const std::pair<int, int> &e1, const std::pair<int, int> &e2)
 {
     return e1.first == e2.first || e1.first == e2.second ||
            e1.second == e2.first || e1.second == e2.second;
+}
+
+// Constructs a DiagonalEdge from an oriented parent->child edge in the given tree.
+static DiagonalEdge makeDiagonalEdge(const VectorRangeTreeMap &T, int parent, int child)
+{
+    auto diag = T.getRange(child);
+    if (diag.second <= diag.first)
+    {
+        int pos = diag.first;
+        diag = {pos, pos + 1}; // boundary placeholder
+    }
+    return DiagonalEdge{diag, parent, child};
 }
 
 VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap &T)
@@ -428,17 +990,19 @@ static inline std::pair<int, int> undirected(int a, int b)
     return {b, a};
 }
 
-std::pair<bool, std::pair<int, int>> findFreeEdge(const VectorRangeTreeMap &T_init,
-                                                  const VectorRangeTreeMap &T_final)
+std::vector<std::pair<int, int>> findFreeEdges(const VectorRangeTreeMap &T_init,
+                                               const VectorRangeTreeMap &T_final)
 {
+    std::vector<std::pair<int, int>> candidates;
     try
     {
         if (T_init.original_nodes.empty() || T_final.original_nodes.empty())
         {
-            return {false, {-1, -1}};
+            return candidates;
         }
 
         auto initEdges = getInternalEdges(T_init);
+        auto targetIndex = buildEndpointIndex(T_final);
         auto finalEdges = getInternalEdges(T_final);
 
         // Build UNDIRECTED sets
@@ -461,27 +1025,37 @@ std::pair<bool, std::pair<int, int>> findFreeEdge(const VectorRangeTreeMap &T_in
                 continue;
 
             bool rotated = false;
+            int v = -1;
             if (testTree.getLeftChild(parent) == child)
             {
                 testTree.rotateRight(parent);
+                v = parent;
                 rotated = true;
             }
             else if (testTree.getRightChild(parent) == child)
             {
                 testTree.rotateLeft(parent);
+                v = parent;
                 rotated = true;
             }
             if (!rotated)
                 continue;
 
             auto newEdges = getInternalEdges(testTree);
+            auto childRange = testTree.getRange(v);
+            if (childRange.first >= childRange.second)
+                continue;
+            if (!targetIndex.count(childRange))
+                continue;
+
             for (const auto &ne : newEdges)
             {
                 auto neu = undirected(ne.first, ne.second);
                 if (initU.find(neu) == initU.end() // not in original
                     && finalU.find(neu) != finalU.end())
-                {                        // IS in target
-                    return {true, edge}; // keep original directed (parent->child) for rotation
+                { // IS in target
+                    candidates.push_back(edge); // keep original directed (parent->child) for rotation
+                    break;
                 }
             }
         }
@@ -490,7 +1064,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdge(const VectorRangeTreeMap &T_in
     {
     }
 
-    return {false, {-1, -1}};
+    return candidates;
 }
 
 std::vector<std::pair<int, int>> getIncidentEdges(const VectorRangeTreeMap &T, int node)
@@ -527,14 +1101,16 @@ std::vector<std::pair<int, int>> getIncidentEdges(const VectorRangeTreeMap &T, i
     return incident;
 }
 
+
+
 // Helper function to partition S based on which tree partition edges belong to
-std::pair<std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>,
-          std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>>
-partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S,
+std::pair<std::vector<std::pair<DiagonalEdge, DiagonalEdge>>,
+          std::vector<std::pair<DiagonalEdge, DiagonalEdge>>>
+partitionS(const std::vector<std::pair<DiagonalEdge, DiagonalEdge>> &S,
            const VectorRangeTreeMap &T1, const VectorRangeTreeMap &T2)
 {
 
-    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> S1, S2;
+    std::vector<std::pair<DiagonalEdge, DiagonalEdge>> S1, S2;
 
     // Get node sets for each partition
     std::set<int> nodes1, nodes2;
@@ -545,16 +1121,16 @@ partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>
 
     for (const auto &edgePair : S)
     {
-        auto &edge1 = edgePair.first;
-        auto &edge2 = edgePair.second;
+        const auto &edge1 = edgePair.first;
+        const auto &edge2 = edgePair.second;
 
         // Check if both edges of the pair belong to T1
-        bool edge1_in_T1 = nodes1.count(edge1.first) && nodes1.count(edge1.second);
-        bool edge2_in_T1 = nodes1.count(edge2.first) && nodes1.count(edge2.second);
+        bool edge1_in_T1 = nodes1.count(edge1.parent) && nodes1.count(edge1.child);
+        bool edge2_in_T1 = nodes1.count(edge2.parent) && nodes1.count(edge2.child);
 
         // Check if both edges of the pair belong to T2
-        bool edge1_in_T2 = nodes2.count(edge1.first) && nodes2.count(edge1.second);
-        bool edge2_in_T2 = nodes2.count(edge2.first) && nodes2.count(edge2.second);
+        bool edge1_in_T2 = nodes2.count(edge1.parent) && nodes2.count(edge1.child);
+        bool edge2_in_T2 = nodes2.count(edge2.parent) && nodes2.count(edge2.child);
 
         if (edge1_in_T1 && edge2_in_T1)
         {
@@ -571,6 +1147,47 @@ partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>
     return {S1, S2};
 }
 
+static std::vector<VertexEdgeCandidate> collectVertexEdgeCandidates(const VectorRangeTreeMap &tree,
+                                                                    int vertex)
+{
+    std::vector<VertexEdgeCandidate> result;
+    std::unordered_set<long long> seen;
+    for (int node : tree.original_nodes)
+    {
+        auto diag = tree.getRange(node);
+        int other = -1;
+        if (diag.first == vertex)
+            other = diag.second;
+        else if (diag.second == vertex)
+            other = diag.first;
+        else
+            continue;
+
+        auto edges = getIncidentEdges(tree, node);
+        for (const auto &edge : edges)
+        {
+            std::pair<int,int> oriented = edge;
+            if (!hasParentChildEdge(tree, oriented.first, oriented.second))
+            {
+                if (hasParentChildEdge(tree, oriented.second, oriented.first))
+                {
+                    oriented = {oriented.second, oriented.first};
+                }
+                else
+                {
+                    continue;
+                }
+            }
+            long long key = (static_cast<long long>(oriented.first) << 32) ^ static_cast<unsigned long long>(oriented.second);
+            if (seen.insert(key).second)
+            {
+                result.push_back({oriented, other});
+            }
+        }
+    }
+    return result;
+}
+
 /**
  * FLIPDISTTREE - Main algorithm
  * Maps to: FlipDistTree(T_init, T_final, k) pseudocode
@@ -578,6 +1195,21 @@ partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>
 bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k)
 {
     debugPrint("Entering FlipDistTree with k=" + std::to_string(k));
+
+    if (ENABLE_EAR_CONTRACTION)
+    {
+        VectorRangeTreeMap reducedStart = T_init;
+        VectorRangeTreeMap reducedTarget = T_final;
+        bool contracted = false;
+        while (contractSharedEar(reducedStart, reducedTarget))
+        {
+            contracted = true;
+        }
+        if (contracted)
+        {
+            return FlipDistTree(reducedStart, reducedTarget, k);
+        }
+    }
 
     if (k < 0)
         return false;
@@ -629,6 +1261,15 @@ bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_
     // PSEUDOCODE STEP 1: "Enumerate all subsets I of independent internal edges in T_init"
     auto conflicts = collectConflictingEdges(T_init, T_final);
     debugPrint("Conflicting edges: " + std::to_string(conflicts.size()));
+    if (DEBUG && !conflicts.empty())
+    {
+        std::string msg = "Conflicts:";
+        for (const auto &edge : conflicts)
+        {
+            msg += " diag(" + std::to_string(edge.diag.first) + "," + std::to_string(edge.diag.second) + ")";
+        }
+        debugPrint(msg);
+    }
 
     auto independentSet = buildMaxIndependentSet(T_init, conflicts);
     if (!independentSet.empty())
@@ -639,6 +1280,17 @@ bool FlipDistTree(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_
             g_flipDistMemo[memoKey] = true;
             return true;
         }
+    }
+
+    std::vector<std::pair<int,int>> conflictEdges;
+    conflictEdges.reserve(conflicts.size());
+    for (const auto &c : conflicts)
+        conflictEdges.emplace_back(c.parent, c.child);
+
+    if (exploreIndependentSets(T_init, T_final, k, conflictEdges))
+    {
+        g_flipDistMemo[memoKey] = true;
+        return true;
     }
 
     // PSEUDOCODE STEP 2: "Return False"
@@ -669,7 +1321,8 @@ int FlipDistMinK(const VectorRangeTreeMap &T1, const VectorRangeTreeMap &T2, int
  * Maps to: TreeDist-I(T_init, T_final, k, I) pseudocode
  */
 bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k,
-               const std::vector<std::pair<int, int>> &I)
+               const std::vector<std::pair<int, int>> &I,
+               bool allow_independent_retry)
 {
     debugPrint("Entering TreeDistI with k=" + std::to_string(k) + ", |I|=" + std::to_string(I.size()));
 
@@ -703,7 +1356,7 @@ bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_fin
             return true;
 
         // Build S from the rotated tree (same logic you already use below)
-        std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> S;
+        std::vector<std::pair<DiagonalEdge, DiagonalEdge>> S;
 
         // For each rotated edge, collect incident pairs on u and v
         // (identical to your code below — reuse it verbatim)
@@ -725,14 +1378,16 @@ bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_fin
                     v_others.push_back(e);
 
             if (u_others.size() >= 2)
-                S.emplace_back(u_others[0], u_others[1]);
+                S.emplace_back(makeDiagonalEdge(T_bar, u_others[0].first, u_others[0].second),
+                               makeDiagonalEdge(T_bar, u_others[1].first, u_others[1].second));
             if (v_others.size() >= 2)
-                S.emplace_back(v_others[0], v_others[1]);
+                S.emplace_back(makeDiagonalEdge(T_bar, v_others[0].first, v_others[0].second),
+                               makeDiagonalEdge(T_bar, v_others[1].first, v_others[1].second));
         }
         // ---- end reuse ----
 
         // Continue with zero remaining budget
-        return TreeDistS(T_bar, T_final, 0, S);
+        return TreeDistS(T_bar, T_final, 0, S, allow_independent_retry);
     }
 
     debugPrint("TreeDistI: Proceeding with remaining_budget=" + std::to_string(remaining_budget));
@@ -746,7 +1401,7 @@ bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_fin
     }
 
     // PSEUDOCODE STEP 1: "S ← ∅"
-    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> S;
+    std::vector<std::pair<DiagonalEdge, DiagonalEdge>> S;
 
     // PSEUDOCODE STEP 2: "For each edge e ∈ I do:"
     VectorRangeTreeMap T_bar = safeCopyTree(T_init); // T̄_init from pseudocode
@@ -820,19 +1475,41 @@ bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_fin
         // Add pairs (e₁,e₁′) and (e₂,e₂′) to S
         if (u_others.size() >= 2)
         {
-            S.emplace_back(u_others[0], u_others[1]); // Add (e₁,e₁′) to S
+            S.emplace_back(makeDiagonalEdge(T_bar, u_others[0].first, u_others[0].second),
+                           makeDiagonalEdge(T_bar, u_others[1].first, u_others[1].second)); // Add (e₁,e₁′) to S
             debugPrint("TreeDistI: Added edge pair for u");
         }
 
         if (v_others.size() >= 2)
         {
-            S.emplace_back(v_others[0], v_others[1]); // Add (e₂,e₂′) to S
+            S.emplace_back(makeDiagonalEdge(T_bar, v_others[0].first, v_others[0].second),
+                           makeDiagonalEdge(T_bar, v_others[1].first, v_others[1].second)); // Add (e₂,e₂′) to S
             debugPrint("TreeDistI: Added edge pair for v");
         }
     }
 
+    if (DEBUG)
+    {
+        std::string msg = "TreeDistI: S pairs:";
+        if (S.empty())
+        {
+            msg += " <empty>";
+        }
+        else
+        {
+            for (const auto &pair : S)
+            {
+                msg += " (diag(" + std::to_string(pair.first.diag.first) + "," + std::to_string(pair.first.diag.second) +
+                       ") edge(" + std::to_string(pair.first.parent) + "," + std::to_string(pair.first.child) + ");" +
+                       " diag(" + std::to_string(pair.second.diag.first) + "," + std::to_string(pair.second.diag.second) +
+                       ") edge(" + std::to_string(pair.second.parent) + "," + std::to_string(pair.second.child) + "))";
+            }
+        }
+        debugPrint(msg);
+    }
+
     // PSEUDOCODE STEP 3: "Return TreeDist–S(T̄_init, T_final, k−|I|, S)"
-    return TreeDistS(T_bar, T_final, k - (int)I.size(), S);
+    return TreeDistS(T_bar, T_final, k - (int)I.size(), S, allow_independent_retry);
 }
 
 /**
@@ -840,9 +1517,22 @@ bool TreeDistI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_fin
  * Maps to: TreeDist-S(T_init, T_end, k, S) pseudocode
  */
 bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end, int k,
-               const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S)
+               const std::vector<std::pair<DiagonalEdge, DiagonalEdge>> &S,
+               bool allow_independent_retry)
 {
     debugPrint("Entering TreeDistS with k=" + std::to_string(k) + ", |S|=" + std::to_string(S.size()));
+    if (DEBUG && !S.empty())
+    {
+        std::string msg = "TreeDistS: initial S:";
+        for (const auto &pair : S)
+        {
+            msg += " (diag(" + std::to_string(pair.first.diag.first) + "," + std::to_string(pair.first.diag.second) +
+                   ") edge(" + std::to_string(pair.first.parent) + "," + std::to_string(pair.first.child) + ");" +
+                   " diag(" + std::to_string(pair.second.diag.first) + "," + std::to_string(pair.second.diag.second) +
+                   ") edge(" + std::to_string(pair.second.parent) + "," + std::to_string(pair.second.child) + "))";
+        }
+        debugPrint(msg);
+    }
 
     // Base case: trees already equal
     if (TreesEqual(T_init, T_end))
@@ -872,193 +1562,173 @@ bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end
         return false;
     }
 
-    // PSEUDOCODE STEP 1: "If there is a 'free' internal edge e in T_init
-    //                     (i.e. rotating e would insert an edge of T_end), then:"
-    auto [hasFree, freeEdge] = findFreeEdge(T_init, T_end);
-
-    if (hasFree)
+    bool attemptedFreeEdge = false;
+    if (k > 0)
     {
-        debugPrint("TreeDistS: Found free edge (" + std::to_string(freeEdge.first) + "," + std::to_string(freeEdge.second) + ")");
-
-        try
+        auto freeEdges = findFreeEdges(T_init, T_end);
+        for (const auto &freeEdge : freeEdges)
         {
-            int parent = freeEdge.first;
-            int child = freeEdge.second;
+            attemptedFreeEdge = true;
+            debugPrint("TreeDistS: Considering free edge (" + std::to_string(freeEdge.first) + "," +
+                       std::to_string(freeEdge.second) + ")");
 
-            // PSEUDOCODE STEP 1.1: "Remove from S every pair that contains e"
-            auto eU = undirected(freeEdge.first, freeEdge.second);
-            std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> S_filtered;
+            try
+            {
+                int parent = freeEdge.first;
+                int child = freeEdge.second;
+
+            std::vector<std::pair<DiagonalEdge, DiagonalEdge>> S_filtered;
             S_filtered.reserve(S.size());
+            auto feU = undirected(parent, child);
 
             for (const auto &pair : S)
             {
-                auto feU = undirected(freeEdge.first, freeEdge.second);
-                auto p1U = undirected(pair.first.first, pair.first.second);
-                auto p2U = undirected(pair.second.first, pair.second.second);
+                auto p1U = undirected(pair.first.parent, pair.first.child);
+                auto p2U = undirected(pair.second.parent, pair.second.child);
                 if (!(p1U == feU || p2U == feU))
                 {
                     S_filtered.push_back(pair);
                 }
             }
-            debugPrint("TreeDistS: Filtered S from " + std::to_string(S.size()) + " to " + std::to_string(S_filtered.size()) + " pairs");
 
-            // PSEUDOCODE STEP 1.2: "Rotate e in T_init → creates new edge ē (now common with T_end).
-            //                       Let T̄_init be the resulting tree."
-            VectorRangeTreeMap T_bar = safeCopyTree(T_init); // T̄_init from pseudocode
-            int u, v;                                        // The nodes joined by new edge ē
+                VectorRangeTreeMap T_bar = safeCopyTree(T_init);
+                int u = -1, v = -1;
 
-            if (T_bar.getLeftChild(parent) == child)
-            {
-                T_bar.rotateRight(parent);
-                u = child;  // New parent after rotation
-                v = parent; // New child after rotation
-            }
-            else if (T_bar.getRightChild(parent) == child)
-            {
-                T_bar.rotateLeft(parent);
-                u = child;  // New parent after rotation
-                v = parent; // New child after rotation
-            }
-            else
-            {
-                return false; // Invalid rotation
-            }
-
-            // Check if rotation immediately solves the problem
-            if (TreesEqual(T_bar, T_end))
-            {
-                debugPrint("TreeDistS: Solved with free edge rotation");
-                return true;
-            }
-
-            // PSEUDOCODE STEP 1.3: "Let ē join nodes u and v in T̄_init.
-            //                       Let {e₁,e₁′} = the two other edges incident at u.
-            //                       Let {e₂,e₂′} = the two other edges incident at v.
-            //                       Add (e₁,e₁′) and (e₂,e₂′) to S."
-            auto u_incident = getIncidentEdges(T_bar, u);
-            auto v_incident = getIncidentEdges(T_bar, v);
-
-            std::vector<std::pair<int, int>> u_others, v_others;
-
-            // Collect edges incident to u (excluding the new edge ē = (u,v))
-            for (const auto &e : u_incident)
-            {
-                if (!((e.first == u && e.second == v) || (e.first == v && e.second == u)))
+                if (T_bar.getLeftChild(parent) == child)
                 {
-                    u_others.push_back(e); // These are {e₁,e₁′}
+                    T_bar.rotateRight(parent);
+                    u = child;
+                    v = parent;
                 }
-            }
-
-            // Collect edges incident to v (excluding the new edge ē = (u,v))
-            for (const auto &e : v_incident)
-            {
-                if (!((e.first == u && e.second == v) || (e.first == v && e.second == u)))
+                else if (T_bar.getRightChild(parent) == child)
                 {
-                    v_others.push_back(e); // These are {e₂,e₂′}
+                    T_bar.rotateLeft(parent);
+                    u = child;
+                    v = parent;
                 }
-            }
-
-            // Add pairs to S_filtered
-            if (u_others.size() >= 2)
-            {
-                S_filtered.emplace_back(u_others[0], u_others[1]); // Add (e₁,e₁′)
-            }
-            if (v_others.size() >= 2)
-            {
-                S_filtered.emplace_back(v_others[0], v_others[1]); // Add (e₂,e₂′)
-            }
-
-            // PSEUDOCODE STEP 1.4: "partition both T̄_init and T_end along ē, yielding two subtree-pairs
-            //                       {T̄_init¹, T̄_init²} and {T_end¹, T_end²}.
-            //                       Partition S into S₁ (pairs lying in T̄_init¹) and S₂ (pairs in T̄_init²).
-            //                       Let n₁ = φ(T̄_init¹) and n₂ = φ(T̄_init²)."
-            debugPrint("TreeDistS: Implementing partitioning logic (steps 1.4-1.8)");
-
-            auto parent_range = T_bar.getRange(u);
-            auto child_range = T_bar.getRange(v);
-
-            try
-            {
-                // Partition both trees along the new edge ē
-                auto [T_bar1, T_bar2] = VectorRangeTreeMap::partitionAlongEdge(T_bar, parent_range, child_range); // {T̄_init¹, T̄_init²}
-                auto [T_end1, T_end2] = VectorRangeTreeMap::partitionAlongEdge(T_end, parent_range, child_range); // {T_end¹, T_end²}
-
-                // Validate partitions have matching node sets
-                if (T_bar1.original_nodes != T_end1.original_nodes ||
-                    T_bar2.original_nodes != T_end2.original_nodes)
+                else
                 {
-                    debugPrint("TreeDistS: Partition mismatch, falling back to simple recursion");
-                    return TreeDistS(T_bar, T_end, k - 1, S_filtered);
+                    debugPrint("TreeDistS: Invalid rotation for candidate free edge, skipping");
+                    continue;
                 }
 
-                // Partition S into S₁ and S₂
-                auto [S1, S2] = partitionS(S_filtered, T_bar1, T_bar2);
-
-                int n1 = countInternalEdges(T_bar1); // n₁ = φ(T̄_init¹)
-                int n2 = countInternalEdges(T_bar2); // n₂ = φ(T̄_init²)
-
-                debugPrint("TreeDistS: Partitioned into subtrees of size " + std::to_string(n1) + " and " + std::to_string(n2));
-
-                // PSEUDOCODE STEP 1.5: "If T̄_init¹ has no internal edges(trivial),
-                //                       return TreeDist-S(T̄_init², T_end², k − 1 − n₁, S₂)."
-                if (n1 == 0)
+                if (TreesEqual(T_bar, T_end))
                 {
-                    debugPrint("TreeDistS: T1 trivial, solving T2");
-                    return TreeDistS(T_bar2, T_end2, k - 1 - n1, S2);
+                    debugPrint("TreeDistS: Solved with free edge rotation");
+                    return true;
                 }
 
-                // PSEUDOCODE STEP 1.6: "If T̄_init² has no internal edges(trivial),
-                //                       return TreeDist-S(T̄_init¹, T_end¹, k − 1 − n₂, S₁)."
-                if (n2 == 0)
+                auto u_incident = getIncidentEdges(T_bar, u);
+                auto v_incident = getIncidentEdges(T_bar, v);
+
+                std::vector<std::pair<int, int>> u_others, v_others;
+                for (const auto &e : u_incident)
                 {
-                    debugPrint("TreeDistS: T2 trivial, solving T1");
-                    return TreeDistS(T_bar1, T_end1, k - 1 - n2, S1);
+                    if (!((e.first == u && e.second == v) || (e.first == v && e.second == u)))
+                        u_others.push_back(e);
                 }
+                for (const auto &e : v_incident)
+                {
+                    if (!((e.first == u && e.second == v) || (e.first == v && e.second == u)))
+                        v_others.push_back(e);
+                }
+                if (u_others.size() >= 2)
+                    S_filtered.emplace_back(makeDiagonalEdge(T_bar, u_others[0].first, u_others[0].second),
+                                             makeDiagonalEdge(T_bar, u_others[1].first, u_others[1].second));
+                if (v_others.size() >= 2)
+                    S_filtered.emplace_back(makeDiagonalEdge(T_bar, v_others[0].first, v_others[0].second),
+                                             makeDiagonalEdge(T_bar, v_others[1].first, v_others[1].second));
 
-                // PSEUDOCODE STEP 1.7: "For k₁ = n₁+1 to (k − 1 − n₂):
-                //                       if TreeDist-S(T̄_init¹, T_end¹, k₁, S₁) returns True,"
-                // IMPLEMENTATION NOTE: We use k₁ = n₁ to (k − 1 − n₂) instead of n₁+1
-                // REASON: The paper's bound is too strict; we need at least n₁ budget for subtree 1
-                debugPrint("TreeDistS: Starting budget allocation loop");
+                auto parent_range = T_bar.getRange(u);
+                auto child_range = T_bar.getRange(v);
 
-                for (int k1 = n1; k1 <= k - 1 - n2; k1++)
-                { // MODIFIED: start from n₁ instead of n₁+1
-                    debugPrint("TreeDistS: Trying k1=" + std::to_string(k1) + " for subtree 1");
+                try
+                {
+                    auto [T_bar1, T_bar2] = VectorRangeTreeMap::partitionAlongEdge(T_bar, parent_range, child_range);
+                    auto [T_end1, T_end2] = VectorRangeTreeMap::partitionAlongEdge(T_end, parent_range, child_range);
 
-                    if (TreeDistS(T_bar1, T_end1, k1, S1))
+                    if (T_bar1.original_nodes != T_end1.original_nodes ||
+                        T_bar2.original_nodes != T_end2.original_nodes)
                     {
-                        // PSEUDOCODE STEP 1.8: "Return TreeDist-S(T̄_init², T_end², k − 1 − k₁, S₂)."
-                        int k2 = k - 1 - k1;
-                        debugPrint("TreeDistS: T1 succeeded, trying k2=" + std::to_string(k2) + " for subtree 2");
-
-                        if (TreeDistS(T_bar2, T_end2, k2, S2))
+                        if (DEBUG)
                         {
-                            debugPrint("TreeDistS: Both subtrees solved!");
+                            auto diag_u_bar = formatRange(T_bar.diagonalEndpoints(u));
+                            auto diag_u_end = formatRange(T_end.diagonalEndpoints(u));
+                            auto diag_v_bar = formatRange(T_bar.diagonalEndpoints(v));
+                            auto diag_v_end = formatRange(T_end.diagonalEndpoints(v));
+                            debugPrint("TreeDistS: Partition mismatch for edge (" +
+                                       std::to_string(u) + "," + std::to_string(v) + ")");
+                            debugPrint("  child_range=" + formatRange(child_range) +
+                                       " parent_range=" + formatRange(parent_range));
+                            debugPrint("  diag_u start=" + diag_u_bar + " target=" + diag_u_end);
+                            debugPrint("  diag_v start=" + diag_v_bar + " target=" + diag_v_end);
+                            debugPrint("  start side1 nodes=" + formatNodeSet(T_bar1) +
+                                       " target side1 nodes=" + formatNodeSet(T_end1));
+                            debugPrint("  start side2 nodes=" + formatNodeSet(T_bar2) +
+                                       " target side2 nodes=" + formatNodeSet(T_end2));
+                        }
+                        continue;
+                    }
+
+                    auto [S1, S2] = partitionS(S_filtered, T_bar1, T_bar2);
+                    int n1 = countInternalEdges(T_bar1);
+                    int n2 = countInternalEdges(T_bar2);
+
+                    if (n1 == 0)
+                    {
+                        if (TreeDistS(T_bar2, T_end2, k - 1 - n1, S2, allow_independent_retry))
                             return true;
+                        continue;
+                    }
+
+                    if (n2 == 0)
+                    {
+                        if (TreeDistS(T_bar1, T_end1, k - 1 - n2, S1, allow_independent_retry))
+                            return true;
+                        continue;
+                    }
+
+                    for (int k1 = n1; k1 <= k - 1 - n2; k1++)
+                    {
+                        if (TreeDistS(T_bar1, T_end1, k1, S1, allow_independent_retry))
+                        {
+                            int k2 = k - 1 - k1;
+                            if (TreeDistS(T_bar2, T_end2, k2, S2, allow_independent_retry))
+                            {
+                                debugPrint("TreeDistS: Both subtrees solved via free edge");
+                                return true;
+                            }
                         }
                     }
-                }
 
-                // If no k₁ found in step 1.7: "If no such k₁ found, return False"
-                debugPrint("TreeDistS: Budget allocation failed");
-                return false;
+                    debugPrint("TreeDistS: Budget allocation failed for this free edge");
+                }
+                catch (...)
+                {
+                    debugPrint("TreeDistS: Partitioning failed for candidate free edge");
+                    continue;
+                }
             }
             catch (...)
             {
-                debugPrint("TreeDistS: Partitioning failed, using simple recursion");
-                return TreeDistS(T_bar, T_end, k - 1, S_filtered);
+                debugPrint("TreeDistS: Exception during free edge handling, skipping candidate");
+                continue;
             }
         }
-        catch (...)
-        {
-            debugPrint("TreeDistS: Exception during free edge handling");
-            return false;
-        }
+    }
+    else if (DEBUG)
+    {
+        debugPrint("TreeDistS: No budget for free-edge search");
+    }
+
+    if (attemptedFreeEdge)
+    {
+        debugPrint("TreeDistS: Free edge candidates exhausted");
     }
 
     // PSEUDOCODE STEP 2: "No free edge shortcut → branch on S
     //                     For each nonempty independent subset I ⊆ ⋃ S (no two edges in I share a node):"
-    debugPrint("TreeDistS: No free edge, implementing S branching (step 2)");
+    debugPrint("TreeDistS: Proceeding to S branching (step 2)");
 
     if (k <= 0)
     {
@@ -1066,50 +1736,67 @@ bool TreeDistS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end
         return false;
     }
 
-    if (S.empty())
+    // Build a diagonal→node map for future branching/rotation bookkeeping.
+    // (Not yet used by the current edge-based brancher, but kept in debug to
+    // make sure metadata stays in sync.)
+    if (DEBUG)
     {
-        // No constraints from S, try any rotation
-        debugPrint("TreeDistS: S is empty, trying any rotation");
-        auto edges = getInternalEdges(T_init);
-        for (const auto &edge : edges)
+        auto diagMap = buildDiagonalNodeMap(T_init);
+        debugPrint("TreeDistS: diagonal map size=" + std::to_string(diagMap.size()));
+    }
+
+    std::vector<std::pair<DiagonalEdge, DiagonalEdge>> branchPairs = S;
+    if (branchPairs.empty())
+    {
+        branchPairs = buildPartnerPairs(T_init, T_end);
+        if (!branchPairs.empty())
         {
-            try
-            {
-                VectorRangeTreeMap T_test = safeCopyTree(T_init);
-                int parent = edge.first;
-                int child = edge.second;
-
-                if (T_test.getLeftChild(parent) == child)
-                {
-                    T_test.rotateRight(parent);
-                }
-                else if (T_test.getRightChild(parent) == child)
-                {
-                    T_test.rotateLeft(parent);
-                }
-
-                if (TreeDistS(T_test, T_end, k - 1, {}))
-                {
-                    debugPrint("TreeDistS: Found solution with rotation");
-                    return true;
-                }
-            }
-            catch (...)
-            {
-                continue;
-            }
+            debugPrint("TreeDistS: Generated partner pairs for branching (" +
+                       std::to_string(branchPairs.size()) + ")");
         }
+    }
+
+    if (!branchPairs.empty())
+    {
+        if (DEBUG)
+        {
+            std::string msg = "TreeDistS: branch pairs:";
+            for (const auto &pair : branchPairs)
+            {
+                msg += " (diag(" + std::to_string(pair.first.diag.first) + "," + std::to_string(pair.first.diag.second) +
+                       ") edge(" + std::to_string(pair.first.parent) + "," + std::to_string(pair.first.child) + ");" +
+                       " diag(" + std::to_string(pair.second.diag.first) + "," + std::to_string(pair.second.diag.second) +
+                       ") edge(" + std::to_string(pair.second.parent) + "," + std::to_string(pair.second.child) + "))";
+            }
+            debugPrint(msg);
+        }
+
+        debugPrint("TreeDistS: Implementing Li-Xia branching over partner sets");
+        std::vector<std::pair<int,int>> chosen;
+        if (branchOnSPairs(T_init, T_end, k, branchPairs, 0, chosen, allow_independent_retry))
+            return true;
+        debugPrint("TreeDistS: Partner branching failed");
     }
     else
     {
-        debugPrint("TreeDistS: Implementing Li-Xia branching over S");
-        std::vector<std::pair<int,int>> chosen;
-        if (branchOnSPairs(T_init, T_end, k, S, 0, chosen))
-            return true;
+        debugPrint("TreeDistS: No partner pairs available");
     }
 
-    // PSEUDOCODE STEP 3: "Return False"
-    debugPrint("TreeDistS: No solution found");
+    if (allow_independent_retry)
+    {
+        auto conflicts = collectConflictingEdges(T_init, T_end);
+        if (!conflicts.empty())
+        {
+            debugPrint("TreeDistS: Re-entering independent-set enumeration");
+            std::vector<std::pair<int,int>> conflictEdges;
+            conflictEdges.reserve(conflicts.size());
+            for (const auto &c : conflicts)
+                conflictEdges.emplace_back(c.parent, c.child);
+            if (exploreIndependentSets(T_init, T_end, k, conflictEdges, /*allow_independent_retry=*/false))
+                return true;
+        }
+    }
+
     return false;
 }
 

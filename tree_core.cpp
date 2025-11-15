@@ -288,6 +288,12 @@ void VectorRangeTreeMap::collectEdges(
     if (R != NO_CHILD && isOriginal(R)) { out.insert({node,R}); collectEdges(R, out); }
 }
 
+std::pair<int,int> VectorRangeTreeMap::diagonalEndpoints(int node) const {
+    if (node < 0 || node >= (int)ranges.size()) return {-1,-1};
+    if (!isOriginal(node)) return {-1,-1};
+    return ranges[node];
+}
+
 // Splits the tree along the parent->child edge defined by the ranges, returning
 // the induced subtrees on either side of the cut.
 std::pair<VectorRangeTreeMap, VectorRangeTreeMap>

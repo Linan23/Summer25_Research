@@ -72,6 +72,10 @@ struct VectorRangeTreeMap {
     void collectEdges(int node,
         std::unordered_set<std::pair<int,int>,PairHash,PairEq>& out) const;
 
+    // Returns the polygon vertex indices for the diagonal corresponding to
+    // `node`. Values are expressed in the original inorder coordinate system.
+    std::pair<int,int> diagonalEndpoints(int node) const;
+
     // friends
     friend bool        TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B);
     friend std::string treeToString(const VectorRangeTreeMap& T);
@@ -94,8 +98,6 @@ private:
 // Free-Edge Detection Helpers
 struct RP { int ps, pe, cs, ce; bool operator==(RP const&) const; };
 struct RPH { size_t operator()(RP const&) const; };
-
-static uint64_t fnv1a64(const std::string& s);
 
 // Captures the outcome and telemetry of BFSSearchCapped.
 struct BFSRun {
