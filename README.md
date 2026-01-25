@@ -1,9 +1,14 @@
+**01/25/26 - Current performance snapshot (FlipDist)**  
+- Random cases, seeds 0–9, `max_k=2n`, 10s cap: 100% finish for n ≤ 20; n=21 finishes 16/20, n=22–23 finish 14/20 (rest hit the time cap)
+- With a 30s cap (sample seeds 0–4): n=21 finishes all, n=22 finishes most, n=23 still needs more time.  
+- Simple cases remain instant (shortcut distance = n−1) through n=25 but Hard Cases will need to be looked more into
+
 **11/05/25 - Paper Method branching & status check**  
 
 - Integrated the Paper Method branching scheme on trees: FlipDist now assembles a maximal independent set of conflicting diagonals, expands the partner-set branches recursively, and splits shared diagonals into independent subproblems before exploring any flips.  
 - Memoisation and the Paper Method lower bound are active on every `(start,target,k)` call, and the CLI continues to emit canonical paths via `--emit-path` / `--path-ascii`. 
 
-- Known limitations: ear-contraction reductions still require triangulation vertex metadata, so some asymmetric random inputs (e.g. `n=8`, seed 200, `a->b`) fall back to BFS, and instances above ≈15 internal nodes remain out of reach with the current data model and caps.  
+- Known limitations (updated): hard random instances beyond ~20 nodes can still exceed the 10s cap; ear-contraction is optional and mostly helps when the conflict set is large.  
 
 **11/04/25 - FlipDist parity harness & CLI**  
 
@@ -128,4 +133,3 @@ Example usage:
 
 BFS_MODE=baseline BFS_TIME_LIMIT=15 ./test_asan
 BFS_DEMO=1 BFS_DEMO_MODE=random BFS_DEMO_N=6 ./test_asan
-

@@ -32,6 +32,10 @@ struct VectorRangeTreeMap {
     std::vector<int> original_inorder, original_preorder;
     std::unordered_map<int,int> position_in_inorder;
     std::unordered_set<int> original_nodes;
+    mutable bool signature_dirty;
+    mutable std::string cached_signature;
+    mutable bool shape_signature_dirty;
+    mutable std::string cached_shape_signature;
 
     static constexpr int NO_CHILD  = -1;
     static constexpr int NO_PARENT = -1;
@@ -68,6 +72,9 @@ struct VectorRangeTreeMap {
     partitionAlongEdge(const VectorRangeTreeMap& T,
                        const std::pair<int,int>& parent_range,
                        const std::pair<int,int>& child_range);
+    static std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
+    partitionAlongRange(const VectorRangeTreeMap& T,
+                        const std::pair<int,int>& diag_range);
 
     void collectEdges(int node,
         std::unordered_set<std::pair<int,int>,PairHash,PairEq>& out) const;
@@ -75,6 +82,11 @@ struct VectorRangeTreeMap {
     // Returns the polygon vertex indices for the diagonal corresponding to
     // `node`. Values are expressed in the original inorder coordinate system.
     std::pair<int,int> diagonalEndpoints(int node) const;
+    const std::string& signature() const;
+    // Canonical BST shape signature that is invariant to relabeling the node
+    // values; useful for memoizing induced subproblems that differ only by
+    // their leaf labels.
+    const std::string& shapeSignature() const;
 
     // friends
     friend bool        TreesEqual(const VectorRangeTreeMap& A, const VectorRangeTreeMap& B);
@@ -93,6 +105,7 @@ private:
     void calculateAllRanges();
     void updateNodeRange(int node_value);
     void calculateRangesPostOrder(int node_value);
+    void invalidateSignature();
 };
 
 // Free-Edge Detection Helpers
