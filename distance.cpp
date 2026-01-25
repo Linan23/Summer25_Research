@@ -83,15 +83,10 @@ int Dist(const VectorRangeTreeMap& Ts, const VectorRangeTreeMap& Te) {
 }
 */
 
-// Forward decl to make the budget explicit (internal detail; keeps us safe)
-static int DistRec(const VectorRangeTreeMap& T_s,
-                   const VectorRangeTreeMap& T_e,
-                   int budget);
-
 // Depth-limited distance calculation that falls back to full BFS once the
-static int DistRec(const VectorRangeTreeMap& T_s,
-                   const VectorRangeTreeMap& T_e,
-                   int budget) {
+[[maybe_unused]] static int DistRec(const VectorRangeTreeMap& T_s,
+                                    const VectorRangeTreeMap& T_e,
+                                    int budget) {
     if (TreesEqual(T_s, T_e)) return 0;
 
     Key2 key{hashTree64(T_s), hashTree64(T_e)};

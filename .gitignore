@@ -39,7 +39,10 @@ CMakeScripts/
 B_tree
 A_tree
 A-tree
-flipdist
+# Note: we keep the `flipdist/` source directory tracked; ignore only the
+# root-level `flipdist` binary if it exists.
+/flipdist
+!flipdist/
 
 # Logs and caches
 *.log

@@ -18,7 +18,7 @@ static uint64_t fnv1a64(const std::string& s) {
 }
 
 // Convenience wrapper that hashes a tree via its string serialisation.
-static inline uint64_t key64(const VectorRangeTreeMap& T) {
+[[maybe_unused]] static inline uint64_t key64(const VectorRangeTreeMap& T) {
     return fnv1a64(treeToString(T));
 }
 

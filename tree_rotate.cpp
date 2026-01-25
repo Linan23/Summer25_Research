@@ -31,6 +31,7 @@ void VectorRangeTreeMap::rotateLeft(int x) {
     updateNodeRange(x);
     updateNodeRange(y);
     recomputeUpwardsFrom(getParent(y));
+    invalidateSignature();
 
 #ifndef NDEBUG
     verify();
@@ -63,6 +64,7 @@ void VectorRangeTreeMap::rotateRight(int x) {
     updateNodeRange(x);
     updateNodeRange(y);
     recomputeUpwardsFrom(getParent(y));
+    invalidateSignature();
 
 #ifndef NDEBUG
     verify();

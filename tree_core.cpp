@@ -10,7 +10,8 @@
 #include <unordered_set>
 
 // Default-initialised tree with no nodes; Build will populate structure.
-VectorRangeTreeMap::VectorRangeTreeMap() : root(-1), max_node_value(0) {}
+VectorRangeTreeMap::VectorRangeTreeMap()
+    : root(-1), max_node_value(0), signature_dirty(true), shape_signature_dirty(true) {}
 
 #ifndef NDEBUG
 // Performs an expensive structural audit ensuring parent/child/range metadata
@@ -122,6 +123,7 @@ void VectorRangeTreeMap::build(const std::vector<int>& preorder,
 
     calculateAllRanges();
     verify();
+    invalidateSignature();
 }
 
 // Accessors 
@@ -140,6 +142,7 @@ void VectorRangeTreeMap::setLeftChild(int node, int child) {
     if (old >= 0) parents[old] = NO_PARENT;
     edges[node].first = child;
     if (child >= 0) parents[child] = node;
+    invalidateSignature();
 }
 void VectorRangeTreeMap::setRightChild(int node, int child) {
     if (node < 0 || node > max_node_value) return;
@@ -147,6 +150,7 @@ void VectorRangeTreeMap::setRightChild(int node, int child) {
     if (old >= 0) parents[old] = NO_PARENT;
     edges[node].second = child;
     if (child >= 0) parents[child] = node;
+    invalidateSignature();
 }
 
 // internal
@@ -156,6 +160,10 @@ void VectorRangeTreeMap::clear() {
     original_inorder.clear(); original_preorder.clear();
     position_in_inorder.clear(); original_nodes.clear();
     root = -1; max_node_value = 0;
+    cached_signature.clear();
+    cached_shape_signature.clear();
+    signature_dirty = true;
+    shape_signature_dirty = true;
 }
 
 /*
@@ -288,6 +296,12 @@ void VectorRangeTreeMap::collectEdges(
     if (R != NO_CHILD && isOriginal(R)) { out.insert({node,R}); collectEdges(R, out); }
 }
 
+std::pair<int,int> VectorRangeTreeMap::diagonalEndpoints(int node) const {
+    if (node < 0 || node >= (int)ranges.size()) return {-1,-1};
+    if (!isOriginal(node)) return {-1,-1};
+    return ranges[node];
+}
+
 // Splits the tree along the parent->child edge defined by the ranges, returning
 // the induced subtrees on either side of the cut.
 std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
@@ -301,11 +315,170 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
         if (r.first >= child_range.first && r.second <= child_range.second) inA.push_back(x);
         else inB.push_back(x);
     }
-    for (int x : T.original_preorder) {
+    // IMPORTANT: Use the *current* preorder traversal, not the build-time
+    // preorder stored in `original_preorder`. Rotations change the tree shape,
+    // so filtering `original_preorder` can reconstruct the wrong induced
+    // subtree.
+    std::vector<int> curPre;
+    curPre.reserve(T.original_nodes.size());
+    std::function<void(int)> preDFS = [&](int u)
+    {
+        if (u < 0 || !T.isOriginal(u))
+            return;
+        curPre.push_back(u);
+        preDFS(T.getLeftChild(u));
+        preDFS(T.getRightChild(u));
+    };
+    preDFS(T.root);
+
+    for (int x : curPre) {
         auto r = T.getRange(x);
         if (r.first >= child_range.first && r.second <= child_range.second) preA.push_back(x);
         else preB.push_back(x);
     }
     VectorRangeTreeMap A, B; A.build(preA, inA); B.build(preB, inB);
     return {A,B};
+}
+
+std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
+VectorRangeTreeMap::partitionAlongRange(const VectorRangeTreeMap& T,
+                                        const std::pair<int,int>& diag_range)
+{
+    if (diag_range.first < 0 || diag_range.second <= diag_range.first)
+        throw std::logic_error("partitionAlongRange: invalid range");
+
+    auto contains = [&](const std::pair<int,int>& r) {
+        return r.first >= diag_range.first && r.second <= diag_range.second;
+    };
+
+    std::vector<int> inA, inB, preA, preB;
+    inA.reserve(T.original_inorder.size());
+    inB.reserve(T.original_inorder.size());
+    preA.reserve(T.original_preorder.size());
+    preB.reserve(T.original_preorder.size());
+
+    for (int x : T.original_inorder)
+    {
+        auto r = T.getRange(x);
+        if (contains(r)) inA.push_back(x);
+        else inB.push_back(x);
+    }
+    // Same rationale as partitionAlongEdge: use current preorder so induced
+    // subtrees reflect the current rotated shape.
+    std::vector<int> curPre;
+    curPre.reserve(T.original_nodes.size());
+    std::function<void(int)> preDFS = [&](int u)
+    {
+        if (u < 0 || !T.isOriginal(u))
+            return;
+        curPre.push_back(u);
+        preDFS(T.getLeftChild(u));
+        preDFS(T.getRightChild(u));
+    };
+    preDFS(T.root);
+
+    for (int x : curPre)
+    {
+        auto r = T.getRange(x);
+        if (contains(r)) preA.push_back(x);
+        else preB.push_back(x);
+    }
+
+    VectorRangeTreeMap A, B;
+    A.build(preA, inA);
+    B.build(preB, inB);
+    return {A, B};
+}
+
+const std::string& VectorRangeTreeMap::signature() const
+{
+    if (!signature_dirty)
+        return cached_signature;
+
+    std::vector<int> preorder, inorder;
+    if (root >= 0 && !original_nodes.empty())
+    {
+        std::function<void(int)> preDFS = [&](int u)
+        {
+            if (u < 0 || !isOriginal(u))
+                return;
+            preorder.push_back(u);
+            preDFS(getLeftChild(u));
+            preDFS(getRightChild(u));
+        };
+        std::function<void(int)> inDFS = [&](int u)
+        {
+            if (u < 0 || !isOriginal(u))
+                return;
+            inDFS(getLeftChild(u));
+            inorder.push_back(u);
+            inDFS(getRightChild(u));
+        };
+        preDFS(root);
+        inDFS(root);
+    }
+
+    auto encodeSeq = [](const std::vector<int> &seq) {
+        if (seq.empty())
+            return std::string();
+        std::string out;
+        out.reserve(seq.size() * 3);
+        for (size_t i = 0; i < seq.size(); ++i)
+        {
+            if (i > 0)
+                out.push_back(',');
+            out += std::to_string(seq[i]);
+        }
+        return out;
+    };
+
+    cached_signature = "pre:" + encodeSeq(preorder) + "|in:" + encodeSeq(inorder);
+    signature_dirty = false;
+    return cached_signature;
+}
+
+const std::string& VectorRangeTreeMap::shapeSignature() const
+{
+    if (!shape_signature_dirty)
+        return cached_shape_signature;
+
+    std::vector<int> preorderRank;
+    if (root >= 0 && !original_nodes.empty())
+    {
+        std::function<void(int)> preDFS = [&](int u)
+        {
+            if (u < 0 || !isOriginal(u))
+                return;
+            auto it = position_in_inorder.find(u);
+            if (it != position_in_inorder.end())
+                preorderRank.push_back(it->second + 1);
+            preDFS(getLeftChild(u));
+            preDFS(getRightChild(u));
+        };
+        preDFS(root);
+    }
+
+    auto encodeSeq = [](const std::vector<int> &seq) {
+        if (seq.empty())
+            return std::string();
+        std::string out;
+        out.reserve(seq.size() * 3);
+        for (size_t i = 0; i < seq.size(); ++i)
+        {
+            if (i > 0)
+                out.push_back(',');
+            out += std::to_string(seq[i]);
+        }
+        return out;
+    };
+
+    cached_shape_signature = "pre:" + encodeSeq(preorderRank);
+    shape_signature_dirty = false;
+    return cached_shape_signature;
+}
+
+void VectorRangeTreeMap::invalidateSignature()
+{
+    signature_dirty = true;
+    shape_signature_dirty = true;
 }
