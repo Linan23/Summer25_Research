@@ -62,6 +62,128 @@ static size_t envAsSize(const char *name, size_t fallback)
     return fallback;
 }
 
+// Verifies that partitionAlongEdge reconstructs the actual current subtree
+// structure (not just the node set) after arbitrary rotations.
+static void test_partition_along_edge_consistency()
+{
+    if (!envAsFlag("TEST_PARTITION_ALONG_EDGE"))
+        return;
+
+    const int n = static_cast<int>(envAsSize("TEST_PARTITION_N", 15));
+    const int rotations = static_cast<int>(envAsSize("TEST_PARTITION_ROTATIONS", 200));
+    const int trials = static_cast<int>(envAsSize("TEST_PARTITION_TRIALS", 200));
+    const uint32_t seed = static_cast<uint32_t>(envAsSize("TEST_PARTITION_SEED", 1));
+
+    std::mt19937 rng(seed);
+    Traversals base = makeRandomTraversals(n, rng);
+    VectorRangeTreeMap T;
+    T.build(base.preorder, base.inorder);
+
+    auto randomRotateOnce = [&](VectorRangeTreeMap &tree) {
+        std::vector<int> pivots;
+        pivots.reserve(tree.original_nodes.size());
+        for (int v : tree.original_nodes)
+        {
+            if (tree.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD ||
+                tree.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)
+                pivots.push_back(v);
+        }
+        if (pivots.empty())
+            return;
+
+        std::uniform_int_distribution<size_t> pickPivot(0, pivots.size() - 1);
+        int pivot = pivots[pickPivot(rng)];
+
+        bool canLeft = (tree.getRightChild(pivot) != VectorRangeTreeMap::NO_CHILD);
+        bool canRight = (tree.getLeftChild(pivot) != VectorRangeTreeMap::NO_CHILD);
+        if (!canLeft && !canRight)
+            return;
+
+        bool doLeft = false;
+        if (canLeft && canRight)
+        {
+            std::uniform_int_distribution<int> pickDir(0, 1);
+            doLeft = (pickDir(rng) == 1);
+        }
+        else
+        {
+            doLeft = canLeft;
+        }
+
+        if (doLeft)
+            tree.rotateLeft(pivot);
+        else
+            tree.rotateRight(pivot);
+    };
+
+    for (int i = 0; i < rotations; ++i)
+        randomRotateOnce(T);
+
+    auto collectDirectedEdges = [](const VectorRangeTreeMap &tree) {
+        std::unordered_set<std::pair<int,int>, PairHash, PairEq> edges;
+        edges.reserve(tree.original_nodes.size() * 2);
+        tree.collectEdges(tree.root, edges);
+        std::vector<std::pair<int,int>> out(edges.begin(), edges.end());
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+
+    auto buildSubtreeFromNode = [](const VectorRangeTreeMap &tree, int rootNode) {
+        std::vector<int> preorder;
+        std::vector<int> inorder;
+        preorder.reserve(tree.original_nodes.size());
+        inorder.reserve(tree.original_nodes.size());
+
+        std::function<void(int)> dfsPre = [&](int node) {
+            if (node < 0 || !tree.isOriginal(node))
+                return;
+            preorder.push_back(node);
+            dfsPre(tree.getLeftChild(node));
+            dfsPre(tree.getRightChild(node));
+        };
+        std::function<void(int)> dfsIn = [&](int node) {
+            if (node < 0 || !tree.isOriginal(node))
+                return;
+            dfsIn(tree.getLeftChild(node));
+            inorder.push_back(node);
+            dfsIn(tree.getRightChild(node));
+        };
+
+        dfsPre(rootNode);
+        dfsIn(rootNode);
+
+        VectorRangeTreeMap out;
+        out.build(preorder, inorder);
+        return out;
+    };
+
+    for (int t = 0; t < trials; ++t)
+    {
+        auto edges = collectDirectedEdges(T);
+        if (edges.empty())
+            break;
+        std::uniform_int_distribution<size_t> pickEdge(0, edges.size() - 1);
+        auto [parent, child] = edges[pickEdge(rng)];
+
+        auto parent_range = T.getRange(parent);
+        auto child_range = T.getRange(child);
+        auto [A, B] = VectorRangeTreeMap::partitionAlongEdge(T, parent_range, child_range);
+
+        VectorRangeTreeMap expected = buildSubtreeFromNode(T, child);
+
+        if (!TreesEqual(A, expected))
+        {
+            std::cerr << "[FAIL] partitionAlongEdge mismatch on trial " << t
+                      << " edge=(" << parent << "," << child << ")\n";
+            std::cerr << "  expected=" << treeToString(expected) << "\n";
+            std::cerr << "  got     =" << treeToString(A) << "\n";
+            std::abort();
+        }
+    }
+
+    std::cout << "[OK] partitionAlongEdge structure matches current subtree (" << trials << " trials)\n";
+}
+
 // Straightforward string-based BiBFS kept as a correctness oracle.
 static int BiBFSSearch(const VectorRangeTreeMap& S, const VectorRangeTreeMap& T,
                        size_t state_cap = 2'000'000)
@@ -698,7 +820,6 @@ static void probe_random_limit() {
 
 // Master test entry point executed by main().
 void runAllTests() {
-    /*
     test_canonical_serialization();
     test_comparison_row_json();
     test_bidirectional_agreement();
@@ -712,14 +833,15 @@ void runAllTests() {
     capacity_with_my_bfs();
     // random_with_my_bfs();
 
-    */
-
     probe_random_limit();
     run_bruteforce_demo();
+    test_partition_along_edge_consistency();
 }
 
 int main()
 {
+    // Flush std::cout on every write so test output is visible even when piped.
+    std::cout.setf(std::ios::unitbuf);
     runAllTests();
     return 0;
 }
