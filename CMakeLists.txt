@@ -4,20 +4,20 @@ project(Summer25_Research LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# A-tree: driver + helpers all in A_tree.cpp
-add_executable(A_tree
-  A_tree.cpp
+# bf_bst: driver + helpers all in bf_bst.cpp
+add_executable(bf_bst
+  bf_bst.cpp
 )
 
-# B-tree: FlipDist.cpp supplies main(), A_tree.cpp supplies helpers
-add_executable(B_tree
+# flipdist: FlipDist.cpp supplies main(), bf_bst.cpp supplies helpers
+add_executable(flipdist
   FlipDist.cpp
-  A_tree.cpp
+  bf_bst.cpp
 )
-# Skip the A_tree.cpp main() when building B_tree
-target_compile_definitions(B_tree PRIVATE FLIPDIST_BINARY)
+# Skip the bf_bst.cpp main() when building flipdist
+target_compile_definitions(flipdist PRIVATE FLIPDIST_BINARY)
 
 # “make compile” now correctly depends on both targets
 add_custom_target(compile
-  DEPENDS A_tree B_tree
+  DEPENDS bf_bst flipdist
 )
