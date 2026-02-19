@@ -4,9 +4,6 @@
 This runs the C++ `flipdist_fast` CLI to generate random/comb tree pairs and
 computes the exact flip distance using the Java BFS implementation
 (`TriangulationMetricsCli`). It then reports any distance mismatches.
-
-Unlike `scripts/run_compare.py` (C++ BFS vs Java BFS), this script verifies the
-Li–Xia-style solver itself.
 """
 
 from __future__ import annotations
