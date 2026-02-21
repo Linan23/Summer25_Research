@@ -39,6 +39,11 @@ FlipDist single run:
 ./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30 --bfs-cap 1
 ```
 
+FlipDist single run with rotation-by-rotation tree visualization:
+```bash
+./build/flipdist --case random --n 8 --seed 0 --count 1 --max-k 20 --bfs-cap 1 --emit-path
+```
+
 Brute-force single run:
 ```bash
 ./build/bf_bst --case random --n 12 --seed 0 --count 1
@@ -90,9 +95,18 @@ python3 scripts/run_bruteforce_java_parity_sweep.py \
 - `--count <int>`: number of pairs
 - `--max-k <int>`: max distance budget to try
 - `--bfs-cap <int>`: local BFS depth cap used as a bounded fallback (usually keep at `1`)
+- `--print-trees`: print source/target tree encodings for both `a->b` and `b->a`
+- `--emit-path`: print each rotation step with tree visualization
+  - includes start tree, each post-rotation tree, final resulting tree, and target tree
+  - also includes a per-step table: node parent left right range
+
 Example:
 ```bash
 ./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30 --bfs-cap 1
+```
+Example with path/tree visualization:
+```bash
+./build/flipdist --case random --n 8 --seed 0 --count 1 --max-k 20 --bfs-cap 1 --emit-path
 ```
 
 `bf_bst` (`./build/bf_bst`):

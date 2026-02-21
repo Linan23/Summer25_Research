@@ -9,9 +9,12 @@
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <queue>
 #include <random>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Definition: Simple stopwatch for milliseconds and microseconds timing
@@ -181,6 +184,159 @@ static std::string treeToPreInString(const VectorRangeTreeMap &T) {
     return oss.str();
 }
 
+// Definition: Encode current tree state as P:...;I:... by traversing live structure
+// Parameters: T: tree to encode
+// Returns: string encoding of current preorder and inorder traversals
+// Errors: returns empty traversals for invalid/empty trees
+static std::string currentTreeToPreInString(const VectorRangeTreeMap &T) {
+    std::vector<int> preorder;
+    std::vector<int> inorder;
+    std::function<void(int)> dfs_pre = [&](int node) {
+        if (node < 0 || !T.isOriginal(node)) return;
+        preorder.push_back(node);
+        dfs_pre(T.getLeftChild(node));
+        dfs_pre(T.getRightChild(node));
+    };
+    std::function<void(int)> dfs_in = [&](int node) {
+        if (node < 0 || !T.isOriginal(node)) return;
+        dfs_in(T.getLeftChild(node));
+        inorder.push_back(node);
+        dfs_in(T.getRightChild(node));
+    };
+    if (T.root >= 0 && T.isOriginal(T.root)) {
+        dfs_pre(T.root);
+        dfs_in(T.root);
+    }
+    auto join = [](const std::vector<int> &vals) {
+        std::ostringstream oss;
+        for (size_t i = 0; i < vals.size(); i++) {
+            if (i) oss << ",";
+            oss << vals[i];
+        }
+        return oss.str();
+    };
+    std::ostringstream oss;
+    oss << "P:" << join(preorder) << ";I:" << join(inorder);
+    return oss.str();
+}
+
+// Definition: Render a horizontal ASCII tree (parent over children) similar to textbook diagrams
+// Parameters: T: tree to render; base_indent: prefix added to each line
+// Returns: nothing
+// Errors: prints a placeholder for empty trees
+static void printAsciiTreeDiagram(const VectorRangeTreeMap &T, const std::string &base_indent = "    ") {
+    if (T.root < 0 || !T.isOriginal(T.root) || T.original_nodes.empty()) {
+        std::cout << base_indent << "(empty tree)\n";
+        return;
+    }
+
+    std::vector<int> inorder_nodes;
+    std::unordered_map<int, int> depth_by_node;
+    int max_depth = 0;
+
+    std::function<void(int)> dfs_in = [&](int node) {
+        if (node < 0 || !T.isOriginal(node)) return;
+        dfs_in(T.getLeftChild(node));
+        inorder_nodes.push_back(node);
+        dfs_in(T.getRightChild(node));
+    };
+    std::function<void(int, int)> dfs_depth = [&](int node, int depth) {
+        if (node < 0 || !T.isOriginal(node)) return;
+        depth_by_node[node] = depth;
+        if (depth > max_depth) max_depth = depth;
+        dfs_depth(T.getLeftChild(node), depth + 1);
+        dfs_depth(T.getRightChild(node), depth + 1);
+    };
+
+    dfs_in(T.root);
+    dfs_depth(T.root, 0);
+
+    std::unordered_map<int, int> rank_by_node;
+    for (size_t i = 0; i < inorder_nodes.size(); i++) {
+        rank_by_node[inorder_nodes[i]] = static_cast<int>(i);
+    }
+
+    const int spacing = 5;
+    const int width = std::max(8, static_cast<int>(inorder_nodes.size()) * spacing + 2);
+    const int height = max_depth * 2 + 1;
+    std::vector<std::string> canvas(height, std::string(width, ' '));
+
+    auto safe_set = [&](int r, int c, char ch) {
+        if (r < 0 || r >= height || c < 0 || c >= width) return;
+        canvas[r][c] = ch;
+    };
+    auto draw_hline = [&](int r, int c1, int c2, char ch) {
+        if (r < 0 || r >= height) return;
+        if (c1 > c2) std::swap(c1, c2);
+        c1 = std::max(c1, 0);
+        c2 = std::min(c2, width - 1);
+        for (int c = c1; c <= c2; c++) canvas[r][c] = ch;
+    };
+    auto center_x = [&](int node) {
+        return rank_by_node[node] * spacing + spacing / 2;
+    };
+    auto put_label = [&](int r, int x, const std::string &label) {
+        int start = x - static_cast<int>(label.size()) / 2;
+        for (size_t i = 0; i < label.size(); i++) {
+            int c = start + static_cast<int>(i);
+            if (r >= 0 && r < height && c >= 0 && c < width) {
+                canvas[r][c] = label[i];
+            }
+        }
+    };
+
+    for (int node : inorder_nodes) {
+        int y = depth_by_node[node] * 2;
+        int x = center_x(node);
+        put_label(y, x, std::to_string(node));
+
+        int l = T.getLeftChild(node);
+        if (l >= 0 && T.isOriginal(l)) {
+            int cx = center_x(l);
+            int row = y + 1;
+            safe_set(row, cx + 1, '/');
+            draw_hline(row, cx + 2, x - 1, '_');
+        }
+        int r = T.getRightChild(node);
+        if (r >= 0 && T.isOriginal(r)) {
+            int cx = center_x(r);
+            int row = y + 1;
+            safe_set(row, cx - 1, '\\');
+            draw_hline(row, x + 1, cx - 2, '_');
+        }
+    }
+
+    for (const auto &raw : canvas) {
+        size_t end = raw.find_last_not_of(' ');
+        if (end == std::string::npos) continue;
+        std::cout << base_indent << raw.substr(0, end + 1) << "\n";
+    }
+}
+
+// Definition: Print node relationships for a tree state
+// Parameters: T: tree to print; indent: line prefix
+// Returns: nothing
+// Errors: prints nothing for empty trees
+static void printNodeRelations(const VectorRangeTreeMap &T, const std::string &indent = "    ") {
+    std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
+    std::sort(nodes.begin(), nodes.end());
+    if (nodes.empty()) return;
+
+    std::cout << indent << "node parent left right range\n";
+    for (int v : nodes) {
+        if (!T.isOriginal(v)) continue;
+        int p = T.getParent(v);
+        int l = T.getLeftChild(v);
+        int r = T.getRightChild(v);
+        auto rg = T.getRange(v);
+        std::cout << indent << v << " "
+                  << p << " "
+                  << l << " "
+                  << r << " ["
+                  << rg.first << "," << rg.second << "]\n";
+    }
+}
+
 struct CliOptions {
     std::string case_type = "random";
     int n = 0;
@@ -188,6 +344,9 @@ struct CliOptions {
     int count = 1;
     int max_k = -1;
     int bfs_cap = 1;
+    bool print_trees = false;
+    bool emit_path = false;
+    bool path_ascii = false;
     bool help = false;
 };
 
@@ -197,7 +356,7 @@ struct CliOptions {
 // Errors: none
 static void printUsage(const char *argv0) {
     std::cerr << "Usage: " << argv0 << " --case random|comb --n <int> [--seed <int>] [--count <int>]\n"
-              << "       [--max-k <int>] [--bfs-cap <int>]\n";
+              << "       [--max-k <int>] [--bfs-cap <int>] [--print-trees] [--emit-path] [--path-ascii]\n";
 }
 
 // Definition: Parse CLI flags into CliOptions
@@ -235,13 +394,215 @@ static bool parseArgs(int argc, char **argv, CliOptions &opts) {
             opts.bfs_cap = std::stoi(argv[++i]);
             continue;
         }
-        if (arg == "--emit-path" || arg == "--path-ascii") {
-            continue; // accepted for compatibility
+        if (arg == "--print-trees") {
+            opts.print_trees = true;
+            continue;
+        }
+        if (arg == "--emit-path") {
+            opts.emit_path = true;
+            opts.path_ascii = true;
+            continue;
+        }
+        if (arg == "--path-ascii") {
+            opts.path_ascii = true;
+            continue;
         }
         std::cerr << "Unknown argument: " << arg << "\n";
         return false;
     }
     return true;
+}
+
+struct PathParent {
+    std::string parent_key;
+    std::string move;
+    int depth = 0;
+};
+
+struct PathBuildResult {
+    bool found = false;
+    bool capped = false;
+    std::vector<VectorRangeTreeMap> states;
+    std::vector<std::string> moves;
+};
+
+// Definition: Build a shortest rotation path with BFS for debug printing
+// Parameters: source/target: trees; depth_cap: max BFS depth; state_cap: max visited states
+// Returns: path states and moves if found, or capped/not-found status
+// Errors: returns found=false on cap hit or if no path within depth_cap
+static PathBuildResult buildShortestRotationPathBfs(const VectorRangeTreeMap &source,
+                                                    const VectorRangeTreeMap &target,
+                                                    int depth_cap,
+                                                    size_t state_cap) {
+    PathBuildResult out;
+    if (depth_cap < 0) return out;
+
+    const std::string src_key = treeToString(source);
+    const std::string dst_key = treeToString(target);
+    if (src_key == dst_key) {
+        out.found = true;
+        out.states.push_back(source);
+        return out;
+    }
+
+    std::queue<std::string> q;
+    std::unordered_map<std::string, PathParent> parent;
+    std::unordered_map<std::string, VectorRangeTreeMap> states_by_key;
+
+    parent[src_key] = {"", "", 0};
+    states_by_key[src_key] = source;
+    q.push(src_key);
+
+    while (!q.empty()) {
+        std::string cur_key = q.front();
+        q.pop();
+
+        const PathParent cur_parent = parent[cur_key];
+        const int cur_depth = cur_parent.depth;
+        if (cur_depth >= depth_cap) {
+            continue;
+        }
+
+        const VectorRangeTreeMap &cur = states_by_key[cur_key];
+        std::vector<int> nodes(cur.original_nodes.begin(), cur.original_nodes.end());
+        std::sort(nodes.begin(), nodes.end());
+
+        for (int v : nodes) {
+            if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                VectorRangeTreeMap nxt = cur;
+                nxt.rotateLeft(v);
+                std::string nxt_key = treeToString(nxt);
+                if (!parent.count(nxt_key)) {
+                    parent[nxt_key] = {cur_key, "rotateLeft(" + std::to_string(v) + ")", cur_depth + 1};
+                    states_by_key[nxt_key] = std::move(nxt);
+                    if (nxt_key == dst_key) {
+                        out.found = true;
+                        q = {};
+                        break;
+                    }
+                    if (parent.size() >= state_cap) {
+                        out.capped = true;
+                        q = {};
+                        break;
+                    }
+                    q.push(nxt_key);
+                }
+            }
+
+            if (cur.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD) {
+                VectorRangeTreeMap nxt = cur;
+                nxt.rotateRight(v);
+                std::string nxt_key = treeToString(nxt);
+                if (!parent.count(nxt_key)) {
+                    parent[nxt_key] = {cur_key, "rotateRight(" + std::to_string(v) + ")", cur_depth + 1};
+                    states_by_key[nxt_key] = std::move(nxt);
+                    if (nxt_key == dst_key) {
+                        out.found = true;
+                        q = {};
+                        break;
+                    }
+                    if (parent.size() >= state_cap) {
+                        out.capped = true;
+                        q = {};
+                        break;
+                    }
+                    q.push(nxt_key);
+                }
+            }
+        }
+    }
+
+    if (!out.found) {
+        return out;
+    }
+
+    std::vector<std::string> key_path;
+    for (std::string cur = dst_key; !cur.empty(); cur = parent[cur].parent_key) {
+        key_path.push_back(cur);
+    }
+    std::reverse(key_path.begin(), key_path.end());
+
+    out.states.reserve(key_path.size());
+    out.moves.reserve(key_path.size() > 0 ? key_path.size() - 1 : 0);
+    for (size_t i = 0; i < key_path.size(); i++) {
+        out.states.push_back(states_by_key[key_path[i]]);
+        if (i > 0) {
+            out.moves.push_back(parent[key_path[i]].move);
+        }
+    }
+
+    return out;
+}
+
+// Definition: Print path steps and optional ASCII trees for each step
+// Parameters: direction: a->b or b->a; T1/T2: source and target trees; dist: expected shortest distance; ascii: print tree shape if true
+// Returns: nothing
+// Errors: prints a skip/cap message if path search is too large
+static void emitRotationPath(const char *direction,
+                             const VectorRangeTreeMap &T1,
+                             const VectorRangeTreeMap &T2,
+                             int dist,
+                             bool ascii) {
+    if (dist < 0) {
+        std::cout << "[PATH] direction=" << direction << " skipped (distance not found)\n";
+        return;
+    }
+
+    // Keep debug path generation bounded so normal large runs do not explode
+    const int n = static_cast<int>(T1.original_nodes.size());
+    if (n > 14 || dist > 14) {
+        std::cout << "[PATH] direction=" << direction
+                  << " skipped (n/dist too large for debug path: n=" << n
+                  << ", dist=" << dist << ")\n";
+        return;
+    }
+
+    PathBuildResult path = buildShortestRotationPathBfs(T1, T2, dist, 250000);
+    if (!path.found) {
+        std::cout << "[PATH] direction=" << direction
+                  << " not found within depth=" << dist;
+        if (path.capped) std::cout << " (state cap reached)";
+        std::cout << "\n";
+        return;
+    }
+
+    std::cout << "[PATH] direction=" << direction
+              << " steps=" << path.moves.size() << "\n";
+    for (size_t i = 0; i < path.states.size(); i++) {
+        std::cout << "  [step " << i << "]";
+        if (i > 0) {
+            std::cout << " move=" << path.moves[i - 1];
+        } else {
+            std::cout << " move=start";
+        }
+        std::cout << "\n";
+        if (ascii) {
+            printAsciiTreeDiagram(path.states[i], "    ");
+        } else {
+            std::cout << "    " << currentTreeToPreInString(path.states[i]) << "\n";
+        }
+        std::cout << "    relations:\n";
+        printNodeRelations(path.states[i], "      ");
+    }
+
+    const VectorRangeTreeMap &result_tree = path.states.back();
+    const bool matches_target = TreesEqual(result_tree, T2);
+    std::cout << "[RESULT_TREE] direction=" << direction
+              << " matches_target=" << (matches_target ? "true" : "false") << "\n";
+    std::cout << "  resulting_pre_in=" << currentTreeToPreInString(result_tree) << "\n";
+    std::cout << "  target_pre_in=" << currentTreeToPreInString(T2) << "\n";
+    std::cout << "  resulting_struct=" << treeToString(result_tree) << "\n";
+    std::cout << "  target_struct=" << treeToString(T2) << "\n";
+    if (ascii) {
+        std::cout << "  resulting_ascii:\n";
+        printAsciiTreeDiagram(result_tree, "    ");
+        std::cout << "  resulting_relations:\n";
+        printNodeRelations(result_tree, "    ");
+        std::cout << "  target_ascii:\n";
+        printAsciiTreeDiagram(T2, "    ");
+        std::cout << "  target_relations:\n";
+        printNodeRelations(T2, "    ");
+    }
 }
 
 // Definition: Execute the FlipDist CLI and emit JSON result lines
@@ -294,6 +655,14 @@ int runCli(int argc, char **argv) {
         auto run_one = [&](const VectorRangeTreeMap &T1,
                            const VectorRangeTreeMap &T2,
                            const char *direction) {
+            if (opts.print_trees) {
+                std::cout << "[TREES] direction=" << direction << "\n";
+                std::cout << "  source_pre_in=" << treeToPreInString(T1) << "\n";
+                std::cout << "  target_pre_in=" << treeToPreInString(T2) << "\n";
+                std::cout << "  source_struct=" << treeToString(T1) << "\n";
+                std::cout << "  target_struct=" << treeToString(T2) << "\n";
+            }
+
             initProfile();
             if (g_profile.enabled) {
                 g_profile.start_time = std::chrono::steady_clock::now();
@@ -333,6 +702,11 @@ int runCli(int argc, char **argv) {
                       << ",\"tree_b\":\"" << treeToPreInString(T2) << "\""
                       << ",\"max_k\":" << opts.max_k
                       << "}" << std::endl;
+
+            if (opts.emit_path || opts.path_ascii) {
+                const bool show_ascii = opts.path_ascii || opts.emit_path;
+                emitRotationPath(direction, T1, T2, dist, show_ascii);
+            }
 
             if (g_profile.enabled) {
                 std::cout << "[PROFILE] direction=" << direction << " dist=" << dist << "\n"

@@ -13,9 +13,17 @@ add_executable(bf_bst
 add_executable(flipdist
   FlipDist.cpp
   bf_bst.cpp
+  flipdist/memoization.cpp
+  flipdist/helpers.cpp
+  flipdist/algorithm.cpp
+  flipdist/testing_cli.cpp
 )
 # Skip the bf_bst.cpp main() when building flipdist
 target_compile_definitions(flipdist PRIVATE FLIPDIST_BINARY)
+target_include_directories(flipdist PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_SOURCE_DIR}/flipdist
+)
 
 # “make compile” now correctly depends on both targets
 add_custom_target(compile
