@@ -10,10 +10,12 @@ Latest requested random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `
 
 | Metric | Result |
 | --- | ---: |
-| First-direction exact solves | `274/303 = 90.4%` |
-| First-direction solves under 2s | `271/303 = 89.4%` |
-| Directed exact solves | `548/606` |
-| Directed timeouts | `58` |
+| First-direction exact solves | `288/303 = 95.0%` |
+| First-direction solves under 2s | `287/303 = 94.7%` |
+| Directed exact solves | `576/606 = 95.0%` |
+| Directed timeouts | `30` |
+
+Per-size directed coverage: `n=23: 198/202 = 98.0%`, `n=24: 186/202 = 92.1%`, `n=25: 192/202 = 95.0%`.
 
 Single-run timing has small variance near the 2s boundary, so the under-2s count can move slightly across machines and runs. The retained CSV is in `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv`.
 

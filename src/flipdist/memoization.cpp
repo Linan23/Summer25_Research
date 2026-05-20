@@ -267,6 +267,20 @@ EmptySKeys makeEmptySKeys(const VectorRangeTreeMap& T_init,
     return keys;
 }
 
+EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap& T_init,
+                                  const VectorRangeTreeMap& T_end) {
+    const TreeFingerprint a = treeFingerprint(T_init);
+    const TreeFingerprint b = treeFingerprint(T_end);
+    constexpr uint64_t empty_s_hash = 1469598103934665603ULL;
+    EmptySBaseKeys keys;
+    keys.pair_key = makeTreePairKeyFromFingerprints(1, a, b);
+
+    keys.bounds_key = makeTreePairKeyFromFingerprints(5, a, b);
+    mixKey(keys.bounds_key, empty_s_hash);
+    mixKey(keys.bounds_key, 0);
+    return keys;
+}
+
 Key128 makeKeyIBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final,
                            const std::vector<std::pair<int,int>>& I) {
     uint64_t h = hashEdgeSet(I);
