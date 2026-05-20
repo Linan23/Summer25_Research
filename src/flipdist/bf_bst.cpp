@@ -726,22 +726,25 @@ size_t RPH::operator()(RP const &r) const {
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T)
 {
     std::unordered_set<RP, RPH> s;
-    std::function<void(int)> dfs = [&](int v)
-    {
+    s.reserve(T.original_nodes.size() * 2 + 1);
+    auto dfs = [&](auto&& self, int v) -> void {
         if (v < 0 || !T.isOriginal(v))
             return;
         auto pr = T.getRange(v);
-        for (int c : {T.getLeftChild(v), T.getRightChild(v)})
-        {
-            if (c >= 0 && T.isOriginal(c))
-            {
-                auto cr = T.getRange(c);
-                s.insert(RP{pr.first, pr.second, cr.first, cr.second});
-                dfs(c);
-            }
+        const int left = T.getLeftChild(v);
+        const int right = T.getRightChild(v);
+        if (left >= 0 && T.isOriginal(left)) {
+            auto cr = T.getRange(left);
+            s.insert(RP{pr.first, pr.second, cr.first, cr.second});
+            self(self, left);
+        }
+        if (right >= 0 && T.isOriginal(right)) {
+            auto cr = T.getRange(right);
+            s.insert(RP{pr.first, pr.second, cr.first, cr.second});
+            self(self, right);
         }
     };
-    dfs(T.root);
+    dfs(dfs, T.root);
     return s;
 }
 
@@ -751,23 +754,24 @@ std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T)
 // Errors: returns false on invalid tree
 bool hasEdgeByRange(const VectorRangeTreeMap &tree, RP const &e)
 {
-    std::function<bool(int)> dfs = [&](int v) -> bool
-    {
+    auto dfs = [&](auto&& self, int v) -> bool {
         if (v < 0 || !tree.isOriginal(v))
             return false;
-        for (int c : {tree.getLeftChild(v), tree.getRightChild(v)})
-        {
-            if (c >= 0 && tree.isOriginal(c))
-            {
-                auto cr = tree.getRange(c);
-                if (cr.first == e.cs && cr.second == e.ce)
-                    return true;
-            }
+        const int left = tree.getLeftChild(v);
+        const int right = tree.getRightChild(v);
+        if (left >= 0 && tree.isOriginal(left)) {
+            auto cr = tree.getRange(left);
+            if (cr.first == e.cs && cr.second == e.ce)
+                return true;
         }
-
-        return dfs(tree.getLeftChild(v)) || dfs(tree.getRightChild(v));
+        if (right >= 0 && tree.isOriginal(right)) {
+            auto cr = tree.getRange(right);
+            if (cr.first == e.cs && cr.second == e.ce)
+                return true;
+        }
+        return self(self, left) || self(self, right);
     };
-    return dfs(tree.root);
+    return dfs(dfs, tree.root);
 }
 
 // Definition: Detect any free edge in cur that target wants

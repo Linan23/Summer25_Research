@@ -7,6 +7,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT FLIPDIST_IPO_SUPPORTED OUTPUT FLIPDIST_IPO_ERROR)
+
 set(FLIPDIST_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/flipdist)
 
 # bf_bst: driver + helpers all in bf_bst.cpp
@@ -29,6 +32,9 @@ target_compile_definitions(flipdist PRIVATE FLIPDIST_BINARY)
 target_include_directories(flipdist PRIVATE
   ${FLIPDIST_SRC_DIR}
 )
+if(FLIPDIST_IPO_SUPPORTED)
+  set_property(TARGET flipdist PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+endif()
 
 # “make compile” now correctly depends on both targets
 add_custom_target(compile

@@ -266,6 +266,13 @@ struct EmptySKeys {
     Key128 exact_key{};
 };
 
+struct EmptySBaseKeys {
+    Key128 pair_key{};
+    Key128 bounds_key{};
+};
+
+EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap &T_init,
+                                  const VectorRangeTreeMap &T_end);
 EmptySKeys makeEmptySKeys(const VectorRangeTreeMap &T_init,
                           const VectorRangeTreeMap &T_end,
                           int k);

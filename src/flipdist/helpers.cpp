@@ -19,27 +19,24 @@ std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap& T) {
         if (T.original_nodes.empty() || T.root < 0) {
             return edges;
         }
+        edges.reserve(T.original_nodes.size() > 0 ? T.original_nodes.size() - 1 : 0);
 
-        std::function<void(int)> dfs = [&](int node) {
+        auto dfs = [&](auto&& self, int node) -> void {
             if (node < 0 || !T.isOriginal(node)) return;
-            try {
-                int left = T.getLeftChild(node);
-                int right = T.getRightChild(node);
-                if (left >= 0 && T.isOriginal(left)) {
-                    edges.emplace_back(node, left);
-                    dfs(left);
-                }
-                if (right >= 0 && T.isOriginal(right)) {
-                    edges.emplace_back(node, right);
-                    dfs(right);
-                }
-            } catch (...) {
-                return;
+            int left = T.getLeftChild(node);
+            int right = T.getRightChild(node);
+            if (left >= 0 && T.isOriginal(left)) {
+                edges.emplace_back(node, left);
+                self(self, left);
+            }
+            if (right >= 0 && T.isOriginal(right)) {
+                edges.emplace_back(node, right);
+                self(self, right);
             }
         };
 
         if (T.isOriginal(T.root)) {
-            dfs(T.root);
+            dfs(dfs, T.root);
         }
     } catch (...) {
         edges.clear();
@@ -192,6 +189,53 @@ static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPair(
     return {e1, e2};
 }
 
+static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPairFromEntries(
+        int endpoint,
+        int other,
+        int vcount,
+        const std::vector<EndpointEntry>& entries) {
+    if (entries.empty() || vcount <= 0) {
+        return {{-1,-1},{-1,-1}};
+    }
+
+    struct Item {
+        int other;
+        std::pair<int,int> edge;
+        bool boundary;
+        int dist;
+    };
+
+    std::vector<Item> items;
+    items.reserve(entries.size());
+    for (const auto& entry : entries) {
+        int dist = (entry.other - endpoint + vcount) % vcount;
+        items.push_back({entry.other, entry.edge, entry.boundary, dist});
+    }
+
+    std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
+        return a.dist < b.dist;
+    });
+
+    int idx = -1;
+    for (size_t i = 0; i < items.size(); i++) {
+        if (!items[i].boundary && items[i].other == other) {
+            idx = static_cast<int>(i);
+            break;
+        }
+    }
+
+    if (idx < 0) {
+        return {{-1,-1},{-1,-1}};
+    }
+
+    int prev = (idx - 1 + (int)items.size()) % (int)items.size();
+    int next = (idx + 1) % (int)items.size();
+
+    auto e1 = items[prev].boundary ? std::make_pair(-1,-1) : items[prev].edge;
+    auto e2 = items[next].boundary ? std::make_pair(-1,-1) : items[next].edge;
+    return {e1, e2};
+}
+
 // Definition: Build a deep copy while refreshing preorder metadata
 // Parameters: T: tree to copy
 // Returns: copied tree, or an empty tree on failure
@@ -218,16 +262,16 @@ VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap& T) {
         copy.original_preorder.clear();
         copy.original_preorder.reserve(T.original_nodes.size());
 
-        std::function<void(int)> buildPreorder = [&](int node) {
+        auto buildPreorder = [&](auto&& self, int node) -> void {
             if (node < 0 || !T.isOriginal(node)) return;
             copy.original_preorder.push_back(node);
             int left = T.getLeftChild(node);
             int right = T.getRightChild(node);
-            if (left >= 0 && T.isOriginal(left)) buildPreorder(left);
-            if (right >= 0 && T.isOriginal(right)) buildPreorder(right);
+            if (left >= 0 && T.isOriginal(left)) self(self, left);
+            if (right >= 0 && T.isOriginal(right)) self(self, right);
         };
 
-        buildPreorder(T.root);
+        buildPreorder(buildPreorder, T.root);
         if (copy.original_preorder.size() != T.original_nodes.size()) {
             return VectorRangeTreeMap{};
         }
@@ -678,28 +722,77 @@ void appendPartnerPairsFromSingleDiagonalProfiled(
         stats = &local;
     }
 
-    std::unordered_map<int, std::vector<EndpointEntry>> endpointMap;
-    buildEndpointIndex(T, endpointMap);
     int vcount = vertexCount(T);
     stats->vcount = vcount;
 
     int L = diagonal.first;
     int R = diagonal.second;
+    std::vector<EndpointEntry> entries_l;
+    std::vector<EndpointEntry> entries_r;
+    entries_l.reserve(8);
+    entries_r.reserve(8);
 
-    auto p1 = pickNeighborPair(L, R, vcount, endpointMap);
+    if (vcount > 0) {
+        auto append_entry = [&](int endpoint, int other, std::pair<int, int> edge, bool boundary) {
+            if (endpoint == L) {
+                entries_l.push_back({other, edge, boundary});
+            }
+            if (endpoint == R) {
+                entries_r.push_back({other, edge, boundary});
+            }
+        };
+
+        std::function<void(int)> dfs = [&](int node) {
+            if (node < 0 || !T.isOriginal(node)) {
+                return;
+            }
+            const int left = T.getLeftChild(node);
+            const int right = T.getRightChild(node);
+            if (left >= 0 && T.isOriginal(left)) {
+                auto cr = T.getRange(left);
+                const std::pair<int, int> edge{node, left};
+                append_entry(cr.first, cr.second, edge, false);
+                append_entry(cr.second, cr.first, edge, false);
+                dfs(left);
+            }
+            if (right >= 0 && T.isOriginal(right)) {
+                auto cr = T.getRange(right);
+                const std::pair<int, int> edge{node, right};
+                append_entry(cr.first, cr.second, edge, false);
+                append_entry(cr.second, cr.first, edge, false);
+                dfs(right);
+            }
+        };
+        if (T.isOriginal(T.root)) {
+            dfs(T.root);
+        }
+
+        const int l_prev = (L - 1 + vcount) % vcount;
+        const int l_next = (L + 1) % vcount;
+        const int r_prev = (R - 1 + vcount) % vcount;
+        const int r_next = (R + 1) % vcount;
+        entries_l.push_back({l_prev, {-1, -1}, true});
+        entries_l.push_back({l_next, {-1, -1}, true});
+        if (R == L) {
+            entries_r = entries_l;
+        } else {
+            entries_r.push_back({r_prev, {-1, -1}, true});
+            entries_r.push_back({r_next, {-1, -1}, true});
+        }
+    }
+
+    auto p1 = pickNeighborPairFromEntries(L, R, vcount, entries_l);
     if (!(p1.first.first < 0 && p1.second.first < 0)) {
         out_pairs.push_back(p1);
     }
 
-    auto p2 = pickNeighborPair(R, L, vcount, endpointMap);
+    auto p2 = pickNeighborPairFromEntries(R, L, vcount, entries_r);
     if (!(p2.first.first < 0 && p2.second.first < 0)) {
         out_pairs.push_back(p2);
     }
 
-    auto itL = endpointMap.find(L);
-    auto itR = endpointMap.find(R);
-    stats->bucket_size_l = (itL == endpointMap.end()) ? 0 : static_cast<int>(itL->second.size());
-    stats->bucket_size_r = (itR == endpointMap.end()) ? 0 : static_cast<int>(itR->second.size());
+    stats->bucket_size_l = static_cast<int>(entries_l.size());
+    stats->bucket_size_r = static_cast<int>(entries_r.size());
     stats->emitted_pairs = static_cast<int>(out_pairs.size());
 }
 

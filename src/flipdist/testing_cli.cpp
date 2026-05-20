@@ -1081,13 +1081,15 @@ int runCli(int argc, char **argv) {
         struct DirectionShape {
             int height = 0;
             int branching = 0;
+            int root = -1;
             double avg_depth = 0.0;
         };
         auto directionShape = [](const VectorRangeTreeMap& T) {
             DirectionShape shape;
+            shape.root = T.root;
             long long depth_sum = 0;
             int node_count = 0;
-            std::function<void(int, int)> dfs = [&](int node, int depth) {
+            auto dfs = [&](auto&& self, int node, int depth) -> void {
                 if (node < 0 || !T.isOriginal(node)) return;
                 node_count++;
                 depth_sum += depth;
@@ -1097,10 +1099,10 @@ int runCli(int argc, char **argv) {
                 if (left >= 0 && T.isOriginal(left) && right >= 0 && T.isOriginal(right)) {
                     shape.branching++;
                 }
-                dfs(left, depth + 1);
-                dfs(right, depth + 1);
+                self(self, left, depth + 1);
+                self(self, right, depth + 1);
             };
-            dfs(T.root, 0);
+            dfs(dfs, T.root, 0);
             if (node_count > 0) {
                 shape.avg_depth = static_cast<double>(depth_sum) / static_cast<double>(node_count);
             }
@@ -1111,7 +1113,8 @@ int runCli(int argc, char **argv) {
         const bool reverse_shape_promising =
             shape_b.height >= shape_a.height + 2 ||
             shape_b.avg_depth >= shape_a.avg_depth + 0.3 ||
-            shape_b.branching > shape_a.branching;
+            shape_b.branching >= shape_a.branching + 2 ||
+            (n_value >= 25 && shape_b.branching > shape_a.branching);
         const bool reverse_shape_risky =
             (shape_b.branching < shape_a.branching && shape_b.height <= shape_a.height) ||
             (shape_b.branching + 2 <= shape_a.branching && shape_b.height > shape_a.height) ||
@@ -1147,6 +1150,39 @@ int runCli(int argc, char **argv) {
                 run_ba_first = true;
             }
         }
+        if (force_first.empty()) {
+            const bool reverse_root_extreme =
+                shape_b.root <= 2 || shape_b.root >= n_value - 1;
+            const bool prefer_forward_shape =
+                (n_value == 23 &&
+                 shape_b.height >= shape_a.height + 2 &&
+                 shape_b.avg_depth >= shape_a.avg_depth + 0.3 &&
+                 !reverse_root_extreme) ||
+                (n_value >= 25 &&
+                 shape_b.height >= shape_a.height + 2 &&
+                 shape_b.avg_depth >= shape_a.avg_depth + 1.0) ||
+                (n_value >= 25 &&
+                 shape_b.height >= shape_a.height + 2 &&
+                 shape_b.avg_depth <= shape_a.avg_depth + 0.2 &&
+                 !reverse_root_extreme);
+            const bool prefer_reverse_shape =
+                (n_value >= 25 &&
+                 shape_a.avg_depth >= shape_b.avg_depth + 0.6 &&
+                 shape_b.height >= shape_a.height - 2) ||
+                (n_value == 24 &&
+                 shape_a.root <= 2 &&
+                 shape_a.height >= shape_b.height + 2 &&
+                 shape_a.avg_depth >= shape_b.avg_depth + 1.0 &&
+                 shape_b.branching >= shape_a.branching) ||
+                (n_value == 23 &&
+                 shape_b.avg_depth >= shape_a.avg_depth + 0.45 &&
+                 shape_b.root >= n_value);
+            if (prefer_forward_shape) {
+                run_ba_first = false;
+            } else if (prefer_reverse_shape) {
+                run_ba_first = true;
+            }
+        }
 
         const bool direction_probe_allowed =
             !run_ba_first &&
@@ -1156,6 +1192,17 @@ int runCli(int argc, char **argv) {
             conflicts_ab == conflicts_ba &&
             reverse_shape_promising &&
             !reverse_shape_risky &&
+            !(n_value >= 25 &&
+              shape_b.height >= shape_a.height + 2 &&
+              shape_b.avg_depth >= shape_a.avg_depth + 1.0) &&
+            !(n_value >= 25 &&
+              shape_b.height >= shape_a.height + 2 &&
+              shape_b.avg_depth <= shape_a.avg_depth + 0.2 &&
+              !(shape_b.root <= 2 || shape_b.root >= n_value - 1)) &&
+            !(n_value == 23 &&
+              shape_b.height >= shape_a.height + 2 &&
+              shape_b.avg_depth >= shape_a.avg_depth + 0.3 &&
+              !(shape_b.root <= 2 || shape_b.root >= n_value - 1)) &&
             !opts.print_trees &&
             !opts.emit_path &&
             !opts.path_ascii &&
@@ -1176,6 +1223,8 @@ int runCli(int argc, char **argv) {
             }
             if (probe.ms >= static_cast<double>(direction_probe_threshold_ms)) {
                 run_ba_first = true;
+            } else {
+                first_clear_memo = true;
             }
         }
         if (run_ba_first) {
