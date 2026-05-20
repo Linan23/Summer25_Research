@@ -53,7 +53,9 @@ VectorRangeTreeMap::VectorRangeTreeMap() : root(-1), max_node_value(0)
 
     std::vector<int> original_inorder, original_preorder;
     std::unordered_map<int, int> position_in_inorder; // node_value -> position in inorder
+    std::vector<int> position_in_inorder_fast;         // node_value -> position in inorder
     std::unordered_set<int> original_nodes;           // set of original node values
+    std::vector<unsigned char> original_mask;          // node_value membership mask
 
     static constexpr int NO_CHILD = -1;
     static constexpr int NO_PARENT = -1;
@@ -74,12 +76,6 @@ void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vect
     if (preorder.empty())
         return;
 
-    // Store original nodes
-    for (int val : preorder)
-    {
-        original_nodes.insert(val);
-    }
-
     // size arrays
     max_node_value = *std::max_element(preorder.begin(), preorder.end());
     max_node_value = std::max(max_node_value, *std::max_element(inorder.begin(), inorder.end()));
@@ -88,14 +84,39 @@ void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vect
     ranges.resize(max_node_value + 1, {0, 0});
     edges.resize(max_node_value + 1, {NO_CHILD, NO_CHILD});
     parents.resize(max_node_value + 1, NO_PARENT);
+    original_mask.resize(max_node_value + 1, 0);
+    position_in_inorder_fast.resize(max_node_value + 1, -1);
+
+    // Store original nodes
+    original_nodes.reserve(preorder.size());
+    for (int val : preorder)
+    {
+        original_nodes.insert(val);
+        if (val >= 0 && val < (int)original_mask.size())
+            original_mask[val] = 1;
+    }
 
     // Store original inorder
     original_inorder = inorder;
 
     // Create position mapping from inorder sequence
+    bool needs_sparse_positions = false;
+    for (int val : inorder) {
+        if (val < 0 || val >= (int)position_in_inorder_fast.size()) {
+            needs_sparse_positions = true;
+            break;
+        }
+    }
+    if (needs_sparse_positions) {
+        position_in_inorder.reserve(inorder.size());
+    }
     for (size_t i = 0; i < inorder.size(); i++)
     {
-        position_in_inorder[inorder[i]] = i;
+        if (needs_sparse_positions) {
+            position_in_inorder[inorder[i]] = i;
+        }
+        if (inorder[i] >= 0 && inorder[i] < (int)position_in_inorder_fast.size())
+            position_in_inorder_fast[inorder[i]] = (int)i;
     }
 
     root = preorder[0];
@@ -103,6 +124,7 @@ void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vect
 
     // Calculate ranges for all nodes
     calculateAllRanges();
+    fingerprint_valid = false;
 }
 
 // Definition: Get the left child of a node
@@ -150,6 +172,7 @@ void VectorRangeTreeMap::setLeftChild(int node, int child)
 
     if (node < 0 || node > max_node_value)
         return;
+    fingerprint_valid = false;
     int old = edges[node].first;
     if (old >= 0)
         parents[old] = NO_PARENT;
@@ -164,6 +187,7 @@ void VectorRangeTreeMap::setLeftChild(int node, int child)
 // Errors: ignores invalid node ids
 void VectorRangeTreeMap::setRightChild(int node,int child) {
     if (node<0||node>max_node_value) return;
+    fingerprint_valid = false;
     int old = edges[node].second;
     if (old>=0) parents[old]=NO_PARENT;
     edges[node].second = child;
@@ -176,7 +200,7 @@ void VectorRangeTreeMap::setRightChild(int node,int child) {
 // Errors: none
 bool VectorRangeTreeMap::isOriginal(int node) const
 {
-    return original_nodes.count(node) > 0;
+    return node >= 0 && node < (int)original_mask.size() && original_mask[node] != 0;
 }
 
 // Definition: Print tree structure recursively
@@ -223,6 +247,7 @@ void VectorRangeTreeMap::rotateLeft(int x)
     int yl = getLeftChild(y);
     int xp = getParent(x);
     auto xr = getRange(x), yr = getRange(y), ylr = getRange(yl);
+    fingerprint_valid = false;
 
     // update ranges
     ranges[y] = xr;
@@ -250,8 +275,6 @@ void VectorRangeTreeMap::rotateLeft(int x)
     }
     else
         root = y;
-    // compute all range
-    calculateAllRanges();
 }
 
 // Definition: Rotate right around node x and update ranges
@@ -267,6 +290,7 @@ void VectorRangeTreeMap::rotateRight(int x)
     int yr = getRightChild(y);
     int xp = getParent(x);
     auto xr = getRange(x), yrng = getRange(y), yrr = getRange(yr);
+    fingerprint_valid = false;
 
     ranges[y] = xr;
     ranges[x] = (yr >= 0)
@@ -294,7 +318,6 @@ void VectorRangeTreeMap::rotateRight(int x)
 
     else
         root = y;
-    calculateAllRanges();
 }
 
 // Definition: Collect all (parent, child) edges into a set
@@ -390,16 +413,87 @@ void VectorRangeTreeMap::print() const
 // Returns: pair of subtrees {A, B}
 // Errors: may return empty subtrees for invalid ranges
 std::pair<VectorRangeTreeMap,VectorRangeTreeMap>
+VectorRangeTreeMap::partitionAlongSubtreeRange(const VectorRangeTreeMap& T,
+                                               const std::pair<int,int>& child_range)
+{
+    std::vector<int> inA, inB, preA, preB;
+    inA.reserve(T.original_inorder.size());
+    inB.reserve(T.original_inorder.size());
+    preA.reserve(T.original_preorder.size());
+    preB.reserve(T.original_preorder.size());
+
+    const auto in_child_range = [&](int x) {
+        int pos = -1;
+        if (x >= 0 && x < (int)T.position_in_inorder_fast.size()) {
+            pos = T.position_in_inorder_fast[x];
+        } else {
+            auto it = T.position_in_inorder.find(x);
+            if (it != T.position_in_inorder.end()) {
+                pos = it->second;
+            }
+        }
+        return pos >= child_range.first && pos < child_range.second;
+    };
+
+    for (int x : T.original_inorder)
+    {
+        if (in_child_range(x))
+            inA.push_back(x);
+        else
+            inB.push_back(x);
+    }
+    for (int x : T.original_preorder)
+    {
+        if (in_child_range(x))
+            preA.push_back(x);
+        else
+            preB.push_back(x);
+    }
+    VectorRangeTreeMap A, B;
+    A.build(preA, inA);
+    B.build(preB, inB);
+    return {A, B};
+}
+
+std::pair<VectorRangeTreeMap,VectorRangeTreeMap>
 VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
                                        const std::pair<int,int>& parent_range,
                                        const std::pair<int,int>& child_range)
 {
     std::vector<int> inA, inB, preA, preB;
+    inA.reserve(T.original_inorder.size());
+    inB.reserve(T.original_inorder.size());
+    preA.reserve(T.original_preorder.size());
+    preB.reserve(T.original_preorder.size());
+
+    bool child_range_is_subtree = false;
+    for (int x : T.original_nodes) {
+        if (T.isOriginal(x) && T.getRange(x) == child_range) {
+            child_range_is_subtree = true;
+            break;
+        }
+    }
+    const auto in_child_range = [&](int x) {
+        if (child_range_is_subtree) {
+            int pos = -1;
+            if (x >= 0 && x < (int)T.position_in_inorder_fast.size()) {
+                pos = T.position_in_inorder_fast[x];
+            } else {
+                auto it = T.position_in_inorder.find(x);
+                if (it != T.position_in_inorder.end()) {
+                    pos = it->second;
+                }
+            }
+            return pos >= child_range.first && pos < child_range.second;
+        }
+        auto r = T.getRange(x);
+        return r.first >= child_range.first && r.second <= child_range.second;
+    };
+
     // split inorder
     for (int x : T.original_inorder)
     {
-        auto r = T.getRange(x);
-        if (r.first >= child_range.first && r.second <= child_range.second)
+        if (in_child_range(x))
             inA.push_back(x);
         else
             inB.push_back(x);
@@ -407,8 +501,7 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
     // split preorder
     for (int x : T.original_preorder)
     {
-        auto r = T.getRange(x);
-        if (r.first >= child_range.first && r.second <= child_range.second)
+        if (in_child_range(x))
             preA.push_back(x);
         else
             preB.push_back(x);
@@ -425,12 +518,17 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
 // Errors: none
 void VectorRangeTreeMap::clear() 
 {
+    fingerprint_valid = false;
+    fingerprint_h1 = 0;
+    fingerprint_h2 = 0;
     ranges.clear();
     edges.clear();
     parents.clear();
     original_inorder.clear();
     position_in_inorder.clear();
+    position_in_inorder_fast.clear();
     original_nodes.clear();
+    original_mask.clear();
     root = -1;
     max_node_value = 0;
 }
@@ -451,7 +549,9 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
     parents[root_val] = p;
 
     // Find root position in inorder
-    int root_idx = position_in_inorder[root_val];
+    int root_idx = (root_val >= 0 && root_val < (int)position_in_inorder_fast.size())
+                       ? position_in_inorder_fast[root_val]
+                       : position_in_inorder[root_val];
     int left_size = root_idx - is;
 
     // Build left subtree
@@ -486,7 +586,9 @@ void VectorRangeTreeMap::updateNodeRange(int node_value)
     int right = getRightChild(node_value);
 
     // Get position of this node in inorder traversal
-    int pos = position_in_inorder[node_value];
+    int pos = (node_value >= 0 && node_value < (int)position_in_inorder_fast.size())
+                  ? position_in_inorder_fast[node_value]
+                  : position_in_inorder[node_value];
 
     // Start with just this node's position
     int start = pos;

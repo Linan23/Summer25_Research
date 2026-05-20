@@ -1,209 +1,79 @@
-# Summer25_Research
+# FlipDist Research Solver
 
-## Current Progress
+FlipDist is an exact solver for flip distance on rooted binary trees, using the triangulation-equivalent view for validation and comparison. The C++ implementation preserves the Li-Xia search structure and is optimized around the current hard path in `TreeDistS`, especially partition-driven branching in empty-side subproblems.
 
-- Accuracy parity is strong in tested ranges: n=12..15, seeds 0..4 matched Java BFS distances on all rows (results/parity_flipdist_vs_java_random_n12_15_seeds0_4.csv)
-- Performance is good through most n=23..24 random seeds: 40/40 directions solved in the latest n=23..24, seeds 0..9 sweep (results/flipdist_limits_random_n23_24_seeds0_9_t60_90.csv)
-- n=25 is still mixed on hard seeds: some runs solve in low seconds, others take tens of seconds or hit timeout caps
-- Current problem: TreeDists still blows up on hard cases when partner set S is empty and recursion falls back to expensive generic branching
+The repository is organized as a developer-and-research handoff package: buildable C++ sources, a Java exact oracle, maintained benchmark tools, curated current results, and focused documentation.
 
-## What Is In This Repo
+## Current Solver Status
 
-- `build/flipdist`: main C++ FlipDist solver
-- `build/bf_bst`: brute-force BST solver (exact but very slow for larger n)
-- `triangulation/`: Java BFS oracle
-- `scripts/`: parity, sweep, and plotting tools
+Latest requested random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
 
-## Setup
+| Metric | Result |
+| --- | ---: |
+| First-direction exact solves | `274/303 = 90.4%` |
+| First-direction solves under 2s | `271/303 = 89.4%` |
+| Directed exact solves | `548/606` |
+| Directed timeouts | `58` |
 
-Requirements:
-- CMake + C++20 compiler
+Single-run timing has small variance near the 2s boundary, so the under-2s count can move slightly across machines and runs. The retained CSV is in `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv`.
+
+## AStarFlipDistance Comparison
+
+AStarFlipDistance is optional and is not vendored in this repository. Existing shared-convex benchmark summaries show A* has faster median runtime on the shared-convex cases it solves, while FlipDist has slightly higher completion coverage in the retained summary. Use `--astar-binary` with the benchmark tools to compare against a local external AStar build.
+
+## Quick Start
+
+From a fresh clone on macOS or Linux with no existing build output:
+
+```bash
+./setup.sh
+```
+
+The setup script checks Python 3, CMake, a C++20 compiler, Java/Javac, creates `.venv/`, installs `requirements.txt`, builds the C++ binaries, compiles the Java oracle, and runs smoke checks.
+
+Manual build and smoke test:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/bf_bst
+./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30
+```
+
+Small parity check against the Java oracle:
+
+```bash
+python3 tools/run_flipdist_java_parity.py \
+  --case random --n 12 --seed 0 --count 1 \
+  --cpp-binary ./build/flipdist --max-k 36 \
+  --java-out oracle/java/out --java-lib oracle/java/lib/acm.jar
+```
+
+## Directory Map
+
+| Path | Purpose |
+| --- | --- |
+| `src/flipdist/` | C++ solver, brute-force validator, CLI, memoization, and helper code. |
+| `tools/` | Maintained benchmark, parity, plotting, and comparison scripts. |
+| `tools/research_archive/` | Historical one-off analysis tools retained for reference only. |
+| `oracle/java/` | Java triangulation oracle source and required `acm.jar`. |
+| `benchmarks/` | Curated current benchmark summaries used in documentation. |
+| `docs/` | Architecture, benchmark, development, and artifact policy documentation. |
+| `scripts/setup_dev.py` | All-in-one developer setup script. |
+
+## Documentation
+
+- `docs/architecture.md`: solver components and Li-Xia flow.
+- `docs/benchmarks.md`: maintained benchmark and parity commands.
+- `docs/development.md`: build/test workflow and contribution expectations.
+- `docs/data-artifacts.md`: retained artifacts, ignored outputs, and regeneration policy.
+
+## Requirements
+
+- CMake
+- C++20 compiler (`clang++`, `g++`, or `CXX`)
 - Python 3
-- Java (for oracle/parity scripts)
+- Java and Javac for oracle checks
+- Python package: `matplotlib>=3.8` for plotting tools
 
-Optional for plots:
-```bash
-python3 -m pip install matplotlib
-```
-
-Build:
-```bash
-cmake -S . -B build
-cmake --build build --target flipdist bf_bst
-```
-
-## Core Commands
-
-FlipDist single run:
-```bash
-./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30 --bfs-cap 1
-```
-
-FlipDist single run with rotation-by-rotation tree visualization:
-```bash
-./build/flipdist --case random --n 8 --seed 0 --count 1 --max-k 20 --bfs-cap 1 --emit-path
-```
-
-Brute-force single run:
-```bash
-./build/bf_bst --case random --n 12 --seed 0 --count 1
-```
-
-FlipDist performance sweep:
-```bash
-python3 scripts/sweep_flipdist_limits.py \
-  --case random \
-  --n-min 15 --n-max 16 \
-  --seed-min 0 --seed-max 1 \
-  --timeout-sec 10 \
-  --max-k-mult 3 \
-  --bfs-cap 1 \
-  --output results/flipdist_limits_random_n15_16_seeds0_1_smoke.csv
-```
-If you omit `--output`, the script asks `Save CSV results? (y/n)`.
-
-FlipDist vs Java parity:
-```bash
-python3 scripts/run_flipdist_java_parity_sweep.py \
-  --case random \
-  --n-min 12 --n-max 12 \
-  --seed-min 0 --seed-max 1 \
-  --cpp-binary ./build/flipdist \
-  --bfs-cap 1 \
-  --output results/parity_flipdist_vs_java_random_n12_seed0_1_smoke.csv \
-  --print
-```
-If you omit `--output`, the script asks `Save CSV results? (y/n)`.
-
-Brute-force vs Java parity:
-```bash
-python3 scripts/run_bruteforce_java_parity_sweep.py \
-  --case random \
-  --n-min 12 --n-max 12 \
-  --seed-min 0 --seed-max 0 \
-  --cpp-binary ./build/bf_bst \
-  --output results/parity_bf_vs_java_random_n12_seed0_smoke.csv \
-  --print
-```
-
-## Flag Quick Reference
-
-`flipdist` (`./build/flipdist`):
-- `--case random|comb`: random seeded trees or comb trees
-- `--n <int>`: node count
-- `--seed <int>`: seed for random case
-- `--count <int>`: number of pairs
-- `--max-k <int>`: max distance budget to try
-- `--bfs-cap <int>`: local BFS depth cap used as a bounded fallback (usually keep at `1`)
-- `--print-trees`: print source/target tree encodings for both `a->b` and `b->a`
-- `--emit-path`: print each rotation step with tree visualization
-  - includes start tree, each post-rotation tree, final resulting tree, and target tree
-  - also includes a per-step table: node parent left right range
-
-Example:
-```bash
-./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30 --bfs-cap 1
-```
-Example with path/tree visualization:
-```bash
-./build/flipdist --case random --n 8 --seed 0 --count 1 --max-k 20 --bfs-cap 1 --emit-path
-```
-
-`bf_bst` (`./build/bf_bst`):
-- `--case random`: only random currently
-- `--n <int>`, `--seed <int>`, `--count <int>`
-Example:
-```bash
-./build/bf_bst --case random --n 12 --seed 0 --count 1
-```
-
-`sweep_flipdist_limits.py`:
-- `--timeout-sec`: base timeout per run
-- `--high-timeout-sec`: timeout above `--n-threshold`
-- `--n-threshold`: switch point for high timeout/max-k settings
-- `--max-k-mult`: base `max_k = n * mult`
-- `--high-max-k-mult`: multiplier above threshold
-- `--retry-max-k-mults`: optional retry `max_k` multipliers
-- `--retry-timeout-mult` or `--retry-timeout-mults`: retry timeout scaling
-- `--output`: optional CSV path (if omitted, script prompts yes/no to save)
-
-Example:
-```bash
-python3 scripts/sweep_flipdist_limits.py \
-  --case random \
-  --n-min 15 --n-max 16 \
-  --seed-min 0 --seed-max 1 \
-  --timeout-sec 10 \
-  --max-k-mult 3 \
-  --bfs-cap 1 \
-  --output results/flipdist_limits_random_n15_16_seeds0_1_smoke.csv
-```
-
-`run_flipdist_java_parity.py`:
-- `--output` is optional
-- `--java-time-limit` is important for heavy seeds
-
-Example:
-```bash
-python3 scripts/run_flipdist_java_parity.py \
-  --case random \
-  --n 12 \
-  --seed 0 \
-  --count 1 \
-  --cpp-binary ./build/flipdist \
-  --bfs-cap 1 \
-  --output results/parity_flipdist_vs_java_random_n12_seed0.csv \
-  --print
-```
-
-`run_bruteforce_java_parity.py`:
-- `--output` is optional
-- `--java-time-limit` is important for heavy seeds
-
-Example:
-```bash
-python3 scripts/run_bruteforce_java_parity.py \
-  --case random \
-  --n 12 \
-  --seed 0 \
-  --count 1 \
-  --cpp-binary ./build/bf_bst \
-  --output results/parity_bf_vs_java_random_n12_seed0.csv
-```
-
-`run_flipdist_java_parity_sweep.py`:
-- `--output` is optional (if omitted, script prompts yes/no to save)
-- `--print` shows progress per `(n, seed)`
-
-Example:
-```bash
-python3 scripts/run_flipdist_java_parity_sweep.py \
-  --case random \
-  --n-min 12 --n-max 12 \
-  --seed-min 0 --seed-max 1 \
-  --cpp-binary ./build/flipdist \
-  --bfs-cap 1 \
-  --output results/parity_flipdist_vs_java_random_n12_seed0_1_smoke.csv \
-  --print
-```
-
-`run_bruteforce_java_parity_sweep.py`:
-- `--output` is optional (if omitted, script prompts yes/no to save)
-- `--print` shows each parity run output
-
-Example:
-```bash
-python3 scripts/run_bruteforce_java_parity_sweep.py \
-  --case random \
-  --n-min 12 --n-max 12 \
-  --seed-min 0 --seed-max 0 \
-  --cpp-binary ./build/bf_bst \
-  --output results/parity_bf_vs_java_random_n12_seed0_smoke.csv \
-  --print
-```
-
-## Useful Debug Env Vars
-
-- `FLIPDIST_PROFILE=1`: prints phase-level counters/timing
-- `FLIPDIST_PROFILE_ABORT_MS=<ms>`: cuts profile runs early to inspect bottlenecks
-- `FLIPDIST_DEBUG=1`: verbose debug logging
+Optional AStar comparison setup is documented in `docs/benchmarks.md`; keep external checkouts under `third_party/` or outside the repo.

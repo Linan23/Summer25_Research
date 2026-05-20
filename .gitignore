@@ -7,7 +7,6 @@ CMakeFiles/
 cmake_install.cmake
 
 # Binaries
-flipdist
 bf_bst
 flipdist_fast
 flipdist_asan
@@ -24,7 +23,22 @@ test_asan
 
 # Python
 __pycache__/
+.venv/
+.pytest_cache/
 
 # Generated results
 results/
 comparison_*.csv
+
+# Java oracle build output
+oracle/java/out/
+*.class
+
+# Optional external dependencies
+third_party/
+
+# Scratch files
+A.txt
+B.txt
+a
+b

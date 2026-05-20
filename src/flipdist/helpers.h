@@ -34,10 +34,33 @@ std::pair<std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>,
 partitionS(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S,
            const VectorRangeTreeMap &T1, const VectorRangeTreeMap &T2);
 
+bool partitionNodeSetsMatchByChildRange(const VectorRangeTreeMap& left,
+                                        const VectorRangeTreeMap& right,
+                                        const std::pair<int, int>& child_range);
+
+std::pair<std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>,
+          std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>>
+partitionSByChildRange(const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& S,
+                       const VectorRangeTreeMap& T,
+                       const std::pair<int, int>& child_range);
+
 std::vector<std::vector<std::pair<int, int>>> generateIndependentSubsetsFromS(
     const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S);
+
+struct PrefixPairgenRequestStats {
+    int vcount = 0;
+    int bucket_size_l = 0;
+    int bucket_size_r = 0;
+    int emitted_pairs = 0;
+};
 
 void appendPartnerPairsFromDiagonals(
     const VectorRangeTreeMap &T,
     const std::vector<std::pair<int, int>> &diagonals,
     std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &out_pairs);
+
+void appendPartnerPairsFromSingleDiagonalProfiled(
+    const VectorRangeTreeMap &T,
+    const std::pair<int, int> &diagonal,
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &out_pairs,
+    PrefixPairgenRequestStats *stats);

@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Sweep parity checks between FlipDist and Java BFS across n/seeds.
-
-This wraps run_flipdist_java_parity.py and aggregates outputs into a single CSV,
-while enforcing the Java safety cap (n<=15 by default).
-"""
-
+"""Sweep brute-force bf_bst vs Java BFS across n/seeds."""
 from __future__ import annotations
 
 import argparse
@@ -15,19 +10,17 @@ from pathlib import Path
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Sweep FlipDist vs Java BFS parity across n/seeds.")
-    p.add_argument("--case", dest="case_type", choices=["comb", "random"], default="random")
+    p = argparse.ArgumentParser(description="Sweep bf_bst brute-force vs Java BFS parity across n/seeds.")
+    p.add_argument("--case", dest="case_type", choices=["random"], default="random")
     p.add_argument("--n-min", type=int, required=True)
     p.add_argument("--n-max", type=int, required=True)
     p.add_argument("--seed-min", type=int, default=0)
     p.add_argument("--seed-max", type=int, default=0)
     p.add_argument("--count", type=int, default=1)
-    p.add_argument("--cpp-binary", default="./build/flipdist")
-    p.add_argument("--max-k", type=int, default=None, help="Max k for FlipDistMinK (defaults to 3n+10).")
-    p.add_argument("--bfs-cap", type=int, default=1)
+    p.add_argument("--cpp-binary", default="./build/bf_bst")
     p.add_argument("--java-binary", default="java")
-    p.add_argument("--java-out", default="triangulation/out")
-    p.add_argument("--java-lib", default="triangulation/lib/acm.jar")
+    p.add_argument("--java-out", default="oracle/java/out")
+    p.add_argument("--java-lib", default="oracle/java/lib/acm.jar")
     p.add_argument("--java-time-limit", type=float, default=120.0)
     p.add_argument("--java-visited-cap", type=int, default=15_000_000)
     p.add_argument("--java-queue-cap", type=int, default=15_000_000)
@@ -49,7 +42,7 @@ def resolve_output_path(cfg) -> Path | None:
         return None
 
     default_path = (
-        f"results/parity_flipdist_vs_java_{cfg.case_type}_n{cfg.n_min}_{cfg.n_max}_"
+        f"results/parity_bruteforce_vs_java_{cfg.case_type}_n{cfg.n_min}_{cfg.n_max}_"
         f"seeds{cfg.seed_min}_{cfg.seed_max}.csv"
     )
     try:
@@ -65,11 +58,10 @@ def resolve_output_path(cfg) -> Path | None:
     return Path(path or default_path)
 
 
-def run_one(cfg, n: int, seed: int, out_csv: Path) -> int:
-    max_k = cfg.max_k if cfg.max_k is not None else max(1, 3 * n + 10)
+def run_one(cfg, n: int, seed: int, out_csv: Path | None) -> tuple[int, list[dict]]:
     cmd = [
         sys.executable,
-        "scripts/run_flipdist_java_parity.py",
+        "tools/run_bruteforce_java_parity.py",
         "--case",
         cfg.case_type,
         "--n",
@@ -80,10 +72,6 @@ def run_one(cfg, n: int, seed: int, out_csv: Path) -> int:
         str(seed),
         "--cpp-binary",
         cfg.cpp_binary,
-        "--max-k",
-        str(max_k),
-        "--bfs-cap",
-        str(cfg.bfs_cap),
         "--java-binary",
         cfg.java_binary,
         "--java-out",
@@ -101,12 +89,22 @@ def run_one(cfg, n: int, seed: int, out_csv: Path) -> int:
     ]
     if cfg.allow_java_n_over:
         cmd.append("--allow-java-n-over")
-    cmd.extend(["--output", str(out_csv)])
+    if out_csv is not None:
+        cmd.extend(["--output", str(out_csv)])
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if cfg.print:
         sys.stdout.write(proc.stdout)
         sys.stderr.write(proc.stderr)
-    return proc.returncode
+    if proc.returncode != 0:
+        if not cfg.print:
+            sys.stdout.write(proc.stdout)
+            sys.stderr.write(proc.stderr)
+        return proc.returncode, []
+    rows: list[dict] = []
+    if out_csv is not None and out_csv.exists():
+        with out_csv.open() as f:
+            rows = list(csv.DictReader(f))
+    return proc.returncode, rows
 
 
 def main() -> int:
@@ -123,49 +121,30 @@ def main() -> int:
     all_rows: list[dict] = []
     failures = 0
     for n in range(cfg.n_min, cfg.n_max + 1):
-        seeds = range(cfg.seed_min, cfg.seed_max + 1) if cfg.case_type == "random" else [-1]
-        for seed in seeds:
-            sys.stderr.write(f"Parity sweep: n={n} seed={seed} case={cfg.case_type}\n")
-            tmp_csv = out_dir / f".parity_tmp_n{n}_s{seed}.csv"
-            rc = run_one(cfg, n, seed, tmp_csv)
+        for seed in range(cfg.seed_min, cfg.seed_max + 1):
+            sys.stderr.write(f"Brute-force sweep: n={n} seed={seed} case={cfg.case_type}\n")
+            tmp_csv = out_dir / f".bruteforce_parity_tmp_n{n}_s{seed}.csv" if out_path else None
+            rc, rows = run_one(cfg, n, seed, tmp_csv)
+            if tmp_csv is not None:
+                tmp_csv.unlink(missing_ok=True)
+            all_rows.extend(rows)
             if rc != 0:
                 failures += 1
-                continue
-            if not tmp_csv.exists():
-                failures += 1
-                continue
-            with tmp_csv.open() as f:
-                reader = csv.DictReader(f)
-                all_rows.extend(list(reader))
-            tmp_csv.unlink(missing_ok=True)
 
-    if not all_rows:
-        sys.stderr.write("No parity rows produced.\n")
-        return 1
-
-    if out_path:
+    if out_path and all_rows:
         with out_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=all_rows[0].keys())
             writer.writeheader()
             writer.writerows(all_rows)
-
-    mismatches = [
-        row
-        for row in all_rows
-        if row.get("distance_java") is not None and row.get("distance_flipdist") != row.get("distance_java")
-    ]
-    if mismatches:
-        sys.stderr.write(f"WARNING: {len(mismatches)} distance mismatches detected\n")
-        return 2
+        sys.stderr.write(f"Wrote {out_path} ({len(all_rows)} rows).\n")
+    elif out_path:
+        sys.stderr.write("No CSV rows produced; output file not written.\n")
+    else:
+        sys.stderr.write("CSV not saved.\n")
 
     if failures:
-        sys.stderr.write(f"Completed with {failures} failed runs (timeouts or errors).\n")
+        sys.stderr.write(f"Completed with {failures} failed runs.\n")
         return 3
-
-    if out_path:
-        sys.stderr.write(f"All distances match. Wrote {out_path} ({len(all_rows)} rows).\n")
-    else:
-        sys.stderr.write(f"All distances match. CSV not saved ({len(all_rows)} rows).\n")
     return 0
 
 

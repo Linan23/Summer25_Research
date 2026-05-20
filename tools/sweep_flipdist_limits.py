@@ -2,11 +2,11 @@
 """Sweep FlipDist runtime limits across n and seeds.
 
 This is a performance harness (not a correctness oracle). It runs the C++
-`flipdist_fast` CLI on random or comb cases across a range of n and seeds,
+`flipdist` CLI on random or comb cases across a range of n and seeds,
 records per-direction status/time, and prints a per-n summary.
 
 Example:
-  python3 scripts/sweep_flipdist_limits.py --case random --n-min 15 --n-max 25 \\
+  python3 tools/sweep_flipdist_limits.py --case random --n-min 15 --n-max 25 \\
     --seed-min 0 --seed-max 9 --timeout-sec 5 \\
     --output results/limit_sweep_random_n15_25_seeds0_9_t5s.csv
 """
