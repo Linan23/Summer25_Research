@@ -6,6 +6,7 @@
 #include <unordered_set>
 #include <string>
 #include <utility>
+#include <cstdint>
 
 // Definition: Hash a (parent, child) pair for unordered containers
 // Parameters: p: pair to hash
@@ -38,7 +39,12 @@ struct VectorRangeTreeMap
     int max_node_value;
     std::vector<int> original_inorder, original_preorder;
     std::unordered_map<int, int> position_in_inorder;
+    std::vector<int> position_in_inorder_fast;
     std::unordered_set<int> original_nodes;
+    std::vector<unsigned char> original_mask;
+    mutable bool fingerprint_valid = false;
+    mutable std::uint64_t fingerprint_h1 = 0;
+    mutable std::uint64_t fingerprint_h2 = 0;
 
     static constexpr int NO_CHILD = -1;
     static constexpr int NO_PARENT = -1;
@@ -118,6 +124,14 @@ public:
     partitionAlongEdge(const VectorRangeTreeMap &T,
                        const std::pair<int, int> &parent_range,
                        const std::pair<int, int> &child_range);
+
+    // Definition: Partition a tree when child_range is known to be a subtree range
+    // Parameters: T: source tree; child_range: subtree inorder range
+    // Returns: pair of subtrees {A, B}
+    // Errors: may return empty subtrees for invalid ranges
+    static std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
+    partitionAlongSubtreeRange(const VectorRangeTreeMap &T,
+                               const std::pair<int, int> &child_range);
 
     // Definition: Collect all edges into a set from a subtree
     // Parameters: node: subtree root; out: output set

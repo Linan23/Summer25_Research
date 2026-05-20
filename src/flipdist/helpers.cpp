@@ -3,6 +3,8 @@
 #include "memoization.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <functional>
 
 // Helper Functions
@@ -50,7 +52,10 @@ std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap& T) {
 // Returns: number of edges
 // Errors: returns 0 on invalid trees or traversal failure
 int countInternalEdges(const VectorRangeTreeMap& T) {
-    return getInternalEdges(T).size();
+    if (T.original_nodes.empty()) {
+        return 0;
+    }
+    return static_cast<int>(T.original_nodes.size()) - 1;
 }
 
 // Definition: Count edges in T_init that are not present in T_final (by range)
@@ -187,48 +192,49 @@ static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPair(
     return {e1, e2};
 }
 
-// Definition: Build a deep copy via preorder/inorder reconstruction
+// Definition: Build a deep copy while refreshing preorder metadata
 // Parameters: T: tree to copy
 // Returns: copied tree, or an empty tree on failure
 // Errors: returns empty on invalid trees or reconstruction failure
 VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap& T) {
-    VectorRangeTreeMap copy;
     try {
         if (T.root < 0 || !T.isOriginal(T.root) || T.original_nodes.empty()) {
-            return copy;
+            return VectorRangeTreeMap{};
         }
 
-        std::vector<int> preorder, inorder;
+        VectorRangeTreeMap copy;
+        copy.ranges = T.ranges;
+        copy.edges = T.edges;
+        copy.parents = T.parents;
+        copy.root = T.root;
+        copy.max_node_value = T.max_node_value;
+        copy.original_inorder = T.original_inorder;
+        copy.position_in_inorder_fast = T.position_in_inorder_fast;
+        copy.original_nodes = T.original_nodes;
+        copy.original_mask = T.original_mask;
+        copy.fingerprint_valid = T.fingerprint_valid;
+        copy.fingerprint_h1 = T.fingerprint_h1;
+        copy.fingerprint_h2 = T.fingerprint_h2;
+        copy.original_preorder.clear();
+        copy.original_preorder.reserve(T.original_nodes.size());
 
-        std::function<void(int, std::vector<int>&)> buildPreorder = [&](int node, std::vector<int>& pre) {
+        std::function<void(int)> buildPreorder = [&](int node) {
             if (node < 0 || !T.isOriginal(node)) return;
-            pre.push_back(node);
+            copy.original_preorder.push_back(node);
             int left = T.getLeftChild(node);
             int right = T.getRightChild(node);
-            if (left >= 0 && T.isOriginal(left)) buildPreorder(left, pre);
-            if (right >= 0 && T.isOriginal(right)) buildPreorder(right, pre);
+            if (left >= 0 && T.isOriginal(left)) buildPreorder(left);
+            if (right >= 0 && T.isOriginal(right)) buildPreorder(right);
         };
 
-        std::function<void(int, std::vector<int>&)> buildInorder = [&](int node, std::vector<int>& in) {
-            if (node < 0 || !T.isOriginal(node)) return;
-            int left = T.getLeftChild(node);
-            int right = T.getRightChild(node);
-            if (left >= 0 && T.isOriginal(left)) buildInorder(left, in);
-            in.push_back(node);
-            if (right >= 0 && T.isOriginal(right)) buildInorder(right, in);
-        };
-
-        buildPreorder(T.root, preorder);
-        buildInorder(T.root, inorder);
-
-        if (preorder.size() == inorder.size() && !preorder.empty()) {
-            copy.build(preorder, inorder);
+        buildPreorder(T.root);
+        if (copy.original_preorder.size() != T.original_nodes.size()) {
+            return VectorRangeTreeMap{};
         }
+        return copy;
     } catch (...) {
-        VectorRangeTreeMap empty;
-        return empty;
+        return VectorRangeTreeMap{};
     }
-    return copy;
 }
 
 // Definition: Check whether parent->child is a direct edge
@@ -293,6 +299,19 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
 
     auto targetEdges = buildTargetSet(T_final);
 
+    const auto boundsMinSuccess = [](const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
+                                    const Key128& key) {
+        auto it = bounds_map.find(key);
+        if (it == bounds_map.end()) return -1;
+        return it->second.min_success;
+    };
+    const auto boundsMaxFail = [](const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
+                                 const Key128& key) {
+        auto it = bounds_map.find(key);
+        if (it == bounds_map.end()) return -1;
+        return it->second.max_fail;
+    };
+
     std::vector<RP> commonEdges;
     for (int v : T_init.original_nodes) {
         if (!T_init.isOriginal(v)) continue;
@@ -308,7 +327,7 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
         }
     }
 
-    for (const auto &edge : commonEdges) {
+    for (const auto& edge : commonEdges) {
         std::pair<int,int> parent_range{edge.ps, edge.pe};
         std::pair<int,int> child_range{edge.cs, edge.ce};
 
@@ -328,6 +347,7 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
 
         const Key128 p1_key = makeKeyPair(A1, B1);
         const Key128 p2_key = makeKeyPair(A2, B2);
+        // Note: outer boundsMinSuccess is intentionally reused here.
         int lb1 = std::max(conf1, requiredBudgetFromBounds(g_kbounds, p1_key));
         int lb2 = std::max(conf2, requiredBudgetFromBounds(g_kbounds, p2_key));
 
@@ -337,24 +357,127 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
             continue;
         }
 
-        for (int k1 = min_k1; k1 <= max_k1; k1++) {
+        const int side1_min_success = boundsMinSuccess(g_kbounds, p1_key);
+        const int side2_min_success = boundsMinSuccess(g_kbounds, p2_key);
+        if (side1_min_success >= 0 && side2_min_success >= 0) {
+            const int guaranteed_k1_min = std::max(min_k1, side1_min_success);
+            const int guaranteed_k1_max = std::min(max_k1, k - side2_min_success);
+            if (guaranteed_k1_min <= guaranteed_k1_max) {
+                return true;
+            }
+        }
+
+        int side1_fail_until = std::max(-1, boundsMaxFail(g_kbounds, p1_key));
+        int side2_fail_until = std::max(-1, boundsMaxFail(g_kbounds, p2_key));
+        int side1_true_from = std::max(-1, boundsMinSuccess(g_kbounds, p1_key));
+        int side2_true_from = std::max(-1, boundsMinSuccess(g_kbounds, p2_key));
+        if (side1_true_from < 0) side1_true_from = INT_MAX;
+        if (side2_true_from < 0) side2_true_from = INT_MAX;
+
+        for (int k1 = min_k1; k1 <= max_k1; ) {
+            if (k1 <= side1_fail_until) {
+                k1 = side1_fail_until + 1;
+                continue;
+            }
+
             int k2 = k - k1;
-
-            bool left_known = false;
-            bool left_ok = false;
-            left_known = tryBoundsPrune(g_kbounds, p1_key, k1, left_ok);
-            if (!left_known) {
-                left_ok = FlipDistTree(A1, B1, k1);
+            if (k2 <= side2_fail_until) {
+                return false;
             }
-            if (!left_ok) continue;
 
-            bool right_known = false;
-            bool right_ok = false;
-            right_known = tryBoundsPrune(g_kbounds, p2_key, k2, right_ok);
-            if (!right_known) {
-                right_ok = FlipDistTree(A2, B2, k2);
+            const bool s1_guaranteed = k1 >= side1_true_from;
+            const bool s2_guaranteed = k2 >= side2_true_from;
+            if (s1_guaranteed && s2_guaranteed) {
+                return true;
             }
-            if (right_ok) return true;
+
+            if (s1_guaranteed) {
+                bool right_known = false;
+                bool right_ok = false;
+                right_known = tryBoundsPrune(g_kbounds, p2_key, k2, right_ok);
+                if (!right_known) {
+                    right_ok = FlipDistTree(A2, B2, k2);
+                }
+                if (right_ok) {
+                    return true;
+                }
+                side2_fail_until = std::max(side2_fail_until,
+                                            boundsMaxFail(g_kbounds, p2_key));
+                ++k1;
+                continue;
+            }
+
+            if (s2_guaranteed) {
+                bool left_known = false;
+                bool left_ok = false;
+                left_known = tryBoundsPrune(g_kbounds, p1_key, k1, left_ok);
+                if (!left_known) {
+                    left_ok = FlipDistTree(A1, B1, k1);
+                }
+                if (left_ok) {
+                    return true;
+                }
+                side1_fail_until = std::max(side1_fail_until,
+                                            boundsMaxFail(g_kbounds, p1_key));
+                ++k1;
+                continue;
+            }
+
+            if (lb1 <= lb2) {
+                bool left_known = false;
+                bool left_ok = false;
+                left_known = tryBoundsPrune(g_kbounds, p1_key, k1, left_ok);
+                if (!left_known) {
+                    left_ok = FlipDistTree(A1, B1, k1);
+                }
+                if (!left_ok) {
+                    side1_fail_until = std::max(side1_fail_until,
+                                                boundsMaxFail(g_kbounds, p1_key));
+                    k1 = std::max(k1, side1_fail_until + 1);
+                    continue;
+                }
+                side1_true_from = std::min(side1_true_from, k1);
+
+                bool right_known = false;
+                bool right_ok = false;
+                right_known = tryBoundsPrune(g_kbounds, p2_key, k2, right_ok);
+                if (!right_known) {
+                    right_ok = FlipDistTree(A2, B2, k2);
+                }
+                if (right_ok) {
+                    return true;
+                }
+                side2_fail_until = std::max(side2_fail_until,
+                                            boundsMaxFail(g_kbounds, p2_key));
+                ++k1;
+            } else {
+                bool right_known = false;
+                bool right_ok = false;
+                right_known = tryBoundsPrune(g_kbounds, p2_key, k2, right_ok);
+                if (!right_known) {
+                    right_ok = FlipDistTree(A2, B2, k2);
+                }
+                if (!right_ok) {
+                    side2_fail_until = std::max(side2_fail_until,
+                                                boundsMaxFail(g_kbounds, p2_key));
+                    ++k1;
+                    continue;
+                }
+                side2_true_from = std::min(side2_true_from, k2);
+
+                bool left_known = false;
+                bool left_ok = false;
+                left_known = tryBoundsPrune(g_kbounds, p1_key, k1, left_ok);
+                if (!left_known) {
+                    left_ok = FlipDistTree(A1, B1, k1);
+                }
+                if (left_ok) {
+                    return true;
+                }
+                side1_fail_until = std::max(side1_fail_until,
+                                            boundsMaxFail(g_kbounds, p1_key));
+                ++k1;
+            }
         }
     }
 
@@ -432,23 +555,57 @@ partitionS(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&
            const VectorRangeTreeMap& T1, const VectorRangeTreeMap& T2) {
 
     std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> S1, S2;
+    if (S.empty()) {
+        return {S1, S2};
+    }
+    if (T1.original_nodes.empty() || T2.original_nodes.empty()) {
+        return {S1, S2};
+    }
 
-    // Get node sets for each partition
-    std::set<int> nodes1, nodes2;
-    for (int node : T1.original_nodes) nodes1.insert(node);
-    for (int node : T2.original_nodes) nodes2.insert(node);
+    S1.reserve(S.size());
+    S2.reserve(S.size());
+
+    const int max_node = std::max(T1.max_node_value, T2.max_node_value);
+    if (max_node <= 0) {
+        return {S1, S2};
+    }
+
+    std::vector<std::uint8_t> in_nodes_1(static_cast<std::size_t>(max_node + 1), 0);
+    std::vector<std::uint8_t> in_nodes_2(static_cast<std::size_t>(max_node + 1), 0);
+    for (int node : T1.original_nodes) {
+        if (node >= 0 && node <= max_node) {
+            in_nodes_1[static_cast<std::size_t>(node)] = 1;
+        }
+    }
+    for (int node : T2.original_nodes) {
+        if (node >= 0 && node <= max_node) {
+            in_nodes_2[static_cast<std::size_t>(node)] = 1;
+        }
+    }
 
     for (const auto& edgePair : S) {
         auto& edge1 = edgePair.first;
         auto& edge2 = edgePair.second;
 
         // Check if both edges of the pair belong to T1
-        bool edge1_in_T1 = nodes1.count(edge1.first) && nodes1.count(edge1.second);
-        bool edge2_in_T1 = nodes1.count(edge2.first) && nodes1.count(edge2.second);
+        bool edge1_in_T1 = edge1.first >= 0 && edge1.first <= max_node &&
+                           edge1.second >= 0 && edge1.second <= max_node &&
+                           in_nodes_1[static_cast<std::size_t>(edge1.first)] &&
+                           in_nodes_1[static_cast<std::size_t>(edge1.second)];
+        bool edge2_in_T1 = edge2.first >= 0 && edge2.first <= max_node &&
+                           edge2.second >= 0 && edge2.second <= max_node &&
+                           in_nodes_1[static_cast<std::size_t>(edge2.first)] &&
+                           in_nodes_1[static_cast<std::size_t>(edge2.second)];
 
         // Check if both edges of the pair belong to T2
-        bool edge1_in_T2 = nodes2.count(edge1.first) && nodes2.count(edge1.second);
-        bool edge2_in_T2 = nodes2.count(edge2.first) && nodes2.count(edge2.second);
+        bool edge1_in_T2 = edge1.first >= 0 && edge1.first <= max_node &&
+                           edge1.second >= 0 && edge1.second <= max_node &&
+                           in_nodes_2[static_cast<std::size_t>(edge1.first)] &&
+                           in_nodes_2[static_cast<std::size_t>(edge1.second)];
+        bool edge2_in_T2 = edge2.first >= 0 && edge2.first <= max_node &&
+                           edge2.second >= 0 && edge2.second <= max_node &&
+                           in_nodes_2[static_cast<std::size_t>(edge2.first)] &&
+                           in_nodes_2[static_cast<std::size_t>(edge2.second)];
 
         if (edge1_in_T1 && edge2_in_T1) {
             S1.push_back(edgePair);
@@ -460,6 +617,90 @@ partitionS(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&
     }
 
     return {S1, S2};
+}
+
+bool partitionNodeSetsMatchByChildRange(const VectorRangeTreeMap& left,
+                                       const VectorRangeTreeMap& right,
+                                       const std::pair<int, int>& child_range) {
+    try {
+        int child = -1;
+        for (int v : left.original_nodes) {
+            if (!left.isOriginal(v)) continue;
+            auto r = left.getRange(v);
+            if (r.first == child_range.first && r.second == child_range.second) {
+                child = v;
+                break;
+            }
+        }
+        if (child < 0) return false;
+        int parent = left.getParent(child);
+        if (parent < 0 || !left.isOriginal(parent)) {
+            return false;
+        }
+
+        if (left.original_nodes != right.original_nodes) {
+            return false;
+        }
+        for (int node : left.original_inorder) {
+            if (!left.isOriginal(node) || !right.isOriginal(node)) {
+                return false;
+            }
+            int pos = -1;
+            if (node >= 0 && node < static_cast<int>(left.position_in_inorder_fast.size())) {
+                pos = left.position_in_inorder_fast[node];
+            } else {
+                auto it = left.position_in_inorder.find(node);
+                if (it != left.position_in_inorder.end()) {
+                    pos = it->second;
+                }
+            }
+            const bool in_left_child = pos >= child_range.first && pos < child_range.second;
+            auto right_range = right.getRange(node);
+            const bool in_right_child = right_range.first >= child_range.first &&
+                                        right_range.second <= child_range.second;
+            if (in_left_child != in_right_child) {
+                return false;
+            }
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void appendPartnerPairsFromSingleDiagonalProfiled(
+    const VectorRangeTreeMap& T,
+    const std::pair<int, int>& diagonal,
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& out_pairs,
+    PrefixPairgenRequestStats* stats) {
+    PrefixPairgenRequestStats local;
+    if (!stats) {
+        stats = &local;
+    }
+
+    std::unordered_map<int, std::vector<EndpointEntry>> endpointMap;
+    buildEndpointIndex(T, endpointMap);
+    int vcount = vertexCount(T);
+    stats->vcount = vcount;
+
+    int L = diagonal.first;
+    int R = diagonal.second;
+
+    auto p1 = pickNeighborPair(L, R, vcount, endpointMap);
+    if (!(p1.first.first < 0 && p1.second.first < 0)) {
+        out_pairs.push_back(p1);
+    }
+
+    auto p2 = pickNeighborPair(R, L, vcount, endpointMap);
+    if (!(p2.first.first < 0 && p2.second.first < 0)) {
+        out_pairs.push_back(p2);
+    }
+
+    auto itL = endpointMap.find(L);
+    auto itR = endpointMap.find(R);
+    stats->bucket_size_l = (itL == endpointMap.end()) ? 0 : static_cast<int>(itL->second.size());
+    stats->bucket_size_r = (itR == endpointMap.end()) ? 0 : static_cast<int>(itR->second.size());
+    stats->emitted_pairs = static_cast<int>(out_pairs.size());
 }
 
 // Definition: Build independent edge subsets from S

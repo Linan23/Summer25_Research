@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Parity harness: brute-force bf_bst vs Java BFS (triangulation oracle)."""
+"""Parity harness: C++ FlipDist vs Java BFS (triangulation oracle).
+
+This runs the C++ `flipdist` CLI to generate random/comb tree pairs and
+computes the exact flip distance using the Java BFS implementation
+(`TriangulationMetricsCli`). It then reports any distance mismatches.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -31,18 +37,22 @@ def run_cpp(cfg) -> list[dict]:
         cfg.case_type,
         "--n",
         str(cfg.n),
-        "--seed",
-        str(cfg.seed),
         "--count",
         str(cfg.count),
+        "--bfs-cap",
+        str(cfg.bfs_cap),
+        "--max-k",
+        str(cfg.max_k),
     ]
+    if cfg.case_type == "random":
+        cmd.extend(["--seed", str(cfg.seed)])
     out = run_cmd(cmd)
     rows = [json.loads(line) for line in out.splitlines() if line.strip()]
     return rows
 
 
-def run_java(cfg, forward_rows: list[dict]) -> list[dict]:
-    if not forward_rows:
+def run_java(cfg, cpp_rows: list[dict]) -> list[dict]:
+    if not cpp_rows:
         return []
 
     java_classpath = f"{cfg.java_out}:{cfg.java_lib}"
@@ -54,12 +64,21 @@ def run_java(cfg, forward_rows: list[dict]) -> list[dict]:
     ]
 
     payload_lines: list[str] = []
-    for row in forward_rows:
+    seen_oriented_pairs: set[tuple[str, str, str, str]] = set()
+    for row in cpp_rows:
+        case_type = str(row.get("case_type", "unknown"))
+        seed = str(row.get("seed", -1))
+        tree_a = row["tree_a"]
+        tree_b = row["tree_b"]
+        pair_key = (case_type, seed, tree_a, tree_b)
+        if pair_key in seen_oriented_pairs:
+            continue
+        seen_oriented_pairs.add(pair_key)
         payload = {
-            "case_type": row.get("case_type", "unknown"),
+            "case_type": case_type,
             "seed": row.get("seed", -1),
-            "tree_a": row["tree_a"],
-            "tree_b": row["tree_b"],
+            "tree_a": tree_a,
+            "tree_b": tree_b,
             "time_limit": cfg.java_time_limit,
             "visited_cap": cfg.java_visited_cap,
             "queue_cap": cfg.java_queue_cap,
@@ -99,9 +118,9 @@ def merge(cpp_rows: list[dict], java_rows: list[dict]) -> list[dict]:
                 "n": row.get("n"),
                 "seed": row.get("seed"),
                 "direction": row.get("direction"),
-                "distance_bruteforce": row.get("distance"),
-                "status_bruteforce": row.get("status"),
-                "time_ms_bruteforce": row.get("time_ms"),
+                "distance_flipdist": row.get("distance_flipdist", row.get("distance")),
+                "status_flipdist": row.get("status_flipdist", row.get("status")),
+                "time_ms_flipdist": row.get("time_ms_flipdist", row.get("time_ms")),
                 "distance_java": java_map.get(key, {}).get("distance"),
                 "status_java": java_map.get(key, {}).get("status"),
                 "time_ms_java": java_map.get(key, {}).get("time_ms"),
@@ -119,11 +138,11 @@ def write_csv(path: str, rows: list[dict]) -> None:
         "n",
         "seed",
         "direction",
-        "distance_bruteforce",
+        "distance_flipdist",
         "distance_java",
-        "status_bruteforce",
+        "status_flipdist",
         "status_java",
-        "time_ms_bruteforce",
+        "time_ms_flipdist",
         "time_ms_java",
         "tree_a",
         "tree_b",
@@ -140,7 +159,7 @@ def maybe_prompt_output(cfg) -> None:
         return
     if not sys.stdin.isatty():
         return
-    default_path = f"results/bruteforce_vs_java_{cfg.case_type}_n{cfg.n}_seed{cfg.seed}.csv"
+    default_path = f"results/parity_flipdist_vs_java_{cfg.case_type}_n{cfg.n}_seed{cfg.seed}.csv"
     try:
         resp = input("Save CSV? (y/n): ").strip().lower()
     except EOFError:
@@ -154,41 +173,34 @@ def maybe_prompt_output(cfg) -> None:
     cfg.output = path or default_path
 
 
-def print_table(rows: list[dict]) -> None:
-    cols = [
-        "n",
-        "seed",
-        "direction",
-        "distance_bruteforce",
-        "distance_java",
-        "time_ms_bruteforce",
-        "time_ms_java",
-        "status_bruteforce",
-        "status_java",
-    ]
-    header = " | ".join(f"{c:>12}" for c in cols)
-    print(header)
-    print("-" * len(header))
-    for row in rows:
-        print(" | ".join(f"{str(row.get(c, ''))[:12]:>12}" for c in cols))
-
-
 def parse_args():
-    p = argparse.ArgumentParser(description="Compare bf_bst brute-force vs Java BFS.")
-    p.add_argument("--case", dest="case_type", choices=["random"], default="random")
+    p = argparse.ArgumentParser(description="Verify C++ flipdist against Java BFS oracle.")
+    p.add_argument("--case", dest="case_type", choices=["comb", "random"], default="random")
     p.add_argument("--n", type=int, required=True)
     p.add_argument("--count", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--cpp-binary", default="./build/bf_bst")
+    p.add_argument("--cpp-binary", default="./build/flipdist")
+    p.add_argument("--max-k", type=int, default=None, help="Max k for FlipDistMinK")
+    p.add_argument("--bfs-cap", type=int, default=1, help="Keep small (we use Java as oracle)")
     p.add_argument("--java-binary", default="java")
-    p.add_argument("--java-out", default="triangulation/out")
-    p.add_argument("--java-lib", default="triangulation/lib/acm.jar")
+    p.add_argument("--java-out", default="oracle/java/out")
+    p.add_argument("--java-lib", default="oracle/java/lib/acm.jar")
     p.add_argument("--java-time-limit", type=float, default=120.0)
     p.add_argument("--java-visited-cap", type=int, default=15_000_000)
     p.add_argument("--java-queue-cap", type=int, default=15_000_000)
-    p.add_argument("--max-java-n", type=int, default=15)
-    p.add_argument("--allow-java-n-over", action="store_true")
+    p.add_argument(
+        "--max-java-n",
+        type=int,
+        default=15,
+        help="Safety cap for Java BFS (default: 15).",
+    )
+    p.add_argument(
+        "--allow-java-n-over",
+        action="store_true",
+        help="Allow n > --max-java-n (may be slow or halt).",
+    )
     p.add_argument("--output", default=None, help="CSV output path; omit to skip writing a file.")
+    p.add_argument("--print", action="store_true", help="Print merged comparison rows to stdout.")
     return p.parse_args()
 
 
@@ -199,27 +211,53 @@ def main() -> int:
             f"Refusing to run Java BFS at n={cfg.n} (max {cfg.max_java_n}). "
             "Pass --allow-java-n-over to override."
         )
+    if cfg.max_k is None:
+        cfg.max_k = max(1, 3 * cfg.n + 10)
+
+    sys.stderr.write(f"Parity run: n={cfg.n} seed={cfg.seed} case={cfg.case_type}\n")
 
     cpp_rows = run_cpp(cfg)
-    forward_rows = [row for row in cpp_rows if row.get("direction") == "a->b"]
-    java_rows = run_java(cfg, forward_rows)
+    java_rows = run_java(cfg, cpp_rows)
     merged = merge(cpp_rows, java_rows)
-
-    print_table(merged)
     maybe_prompt_output(cfg)
     if cfg.output:
         write_csv(cfg.output, merged)
 
+    if cfg.print or not cfg.output:
+        # Pretty-print merged rows to stdout for terminal use.
+        cols = ["n", "seed", "direction", "distance_flipdist", "distance_java",
+                "status_flipdist", "status_java", "time_ms_flipdist", "time_ms_java"]
+        header = " | ".join(f"{c:>10}" for c in cols)
+        print(header)
+        print("-" * len(header))
+        for row in merged:
+            print(" | ".join(f"{str(row.get(c,''))[:10]:>10}" for c in cols))
+
     mismatches = [
         row
         for row in merged
-        if row["distance_java"] is not None and row["distance_bruteforce"] != row["distance_java"]
+        if row["distance_java"] is not None and row["distance_flipdist"] != row["distance_java"]
     ]
+    missing_oracle = [row for row in merged if row["distance_java"] is None]
+    if missing_oracle:
+        sys.stderr.write(
+            f"WARNING: {len(missing_oracle)} rows missing Java oracle values "
+            "(parity is incomplete)\n"
+        )
+        return 3
+    if merged:
+        times_flip = [float(r["time_ms_flipdist"]) for r in merged if r.get("time_ms_flipdist") not in ("", None)]
+        times_java = [float(r["time_ms_java"]) for r in merged if r.get("time_ms_java") not in ("", None)]
+        max_flip = max(times_flip) if times_flip else float("nan")
+        max_java = max(times_java) if times_java else float("nan")
+        sys.stderr.write(
+            f"Max times: flipdist={max_flip:.3f}ms java={max_java:.3f}ms "
+            f"(rows={len(merged)})\n"
+        )
     if mismatches:
         sys.stderr.write(f"WARNING: {len(mismatches)} distance mismatches detected\n")
         return 2
-
-    sys.stderr.write("All distances match between brute-force and Java BFS.\n")
+    sys.stderr.write("All distances match between FlipDist and Java BFS.\n")
     return 0
 
 

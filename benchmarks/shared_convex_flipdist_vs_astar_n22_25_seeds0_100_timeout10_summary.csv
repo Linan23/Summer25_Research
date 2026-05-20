@@ -1,0 +1,5 @@
+n,flipdist_ms,astar_simple_ms,astar_combined_ms,flipdist_samples,astar_simple_samples,astar_combined_samples
+22,147.589,16.000,15.000,79,78,77
+23,227.094,25.500,23.500,74,70,68
+24,280.714,73.000,67.000,68,64,63
+25,212.869,91.500,71.000,71,68,66
