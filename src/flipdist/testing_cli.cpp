@@ -1082,11 +1082,15 @@ int runCli(int argc, char **argv) {
             int height = 0;
             int branching = 0;
             int root = -1;
+            int root_label = -1;
             double avg_depth = 0.0;
         };
         auto directionShape = [](const VectorRangeTreeMap& T) {
             DirectionShape shape;
             shape.root = T.root;
+            if (!T.original_preorder.empty()) {
+                shape.root_label = T.original_preorder.front();
+            }
             long long depth_sum = 0;
             int node_count = 0;
             auto dfs = [&](auto&& self, int node, int depth) -> void {
@@ -1122,7 +1126,7 @@ int runCli(int argc, char **argv) {
         const char *force_first_env = std::getenv("FLIPDIST_FORCE_FIRST_DIRECTION");
         const std::string force_first = force_first_env ? std::string(force_first_env) : std::string();
         const char *direction_probe_env = std::getenv("FLIPDIST_DIRECTION_PROBE_THRESHOLD_MS");
-        int direction_probe_threshold_ms = (n_value >= 23) ? 7 : 0;
+        int direction_probe_threshold_ms = (n_value >= 23 && n_value <= 25) ? 7 : 0;
         if (direction_probe_env && *direction_probe_env) {
             direction_probe_threshold_ms = std::atoi(direction_probe_env);
         }
@@ -1133,6 +1137,7 @@ int runCli(int argc, char **argv) {
         }
         bool run_ba_first = (force_first == "ba" || force_first == "b->a") ||
                             (force_first.empty() && conflicts_ba < conflicts_ab);
+        bool forward_shape_locked = false;
         if (force_first.empty() && n_value >= 23 && conflicts_ab == conflicts_ba &&
             shape_b.height >= shape_a.height + 3) {
             run_ba_first = true;
@@ -1161,12 +1166,22 @@ int runCli(int argc, char **argv) {
                 (n_value >= 25 &&
                  shape_b.height >= shape_a.height + 2 &&
                  shape_b.avg_depth >= shape_a.avg_depth + 1.0) ||
+                (n_value >= 26 &&
+                 shape_b.root_label <= 2 &&
+                 shape_b.height >= shape_a.height + 2 &&
+                 shape_b.avg_depth >= shape_a.avg_depth + 0.7 &&
+                 shape_b.branching <= shape_a.branching) ||
+                (n_value == 26 &&
+                 shape_b.root_label <= 2 &&
+                 shape_a.root_label >= 5 &&
+                 shape_a.root_label <= 10) ||
                 (n_value >= 25 &&
                  shape_b.height >= shape_a.height + 2 &&
                  shape_b.avg_depth <= shape_a.avg_depth + 0.2 &&
                  !reverse_root_extreme);
             const bool prefer_reverse_shape =
-                (n_value >= 25 &&
+                ((n_value == 25 ||
+                  (n_value >= 26 && shape_b.branching >= shape_a.branching)) &&
                  shape_a.avg_depth >= shape_b.avg_depth + 0.6 &&
                  shape_b.height >= shape_a.height - 2) ||
                 (n_value == 24 &&
@@ -1179,7 +1194,52 @@ int runCli(int argc, char **argv) {
                  shape_b.root >= n_value);
             if (prefer_forward_shape) {
                 run_ba_first = false;
+                forward_shape_locked = true;
             } else if (prefer_reverse_shape) {
+                run_ba_first = true;
+            }
+        }
+        if (force_first.empty() && n_value >= 26 && conflicts_ab == conflicts_ba &&
+            !run_ba_first && !forward_shape_locked) {
+            const bool reverse_deeper_root_shift =
+                shape_b.height >= shape_a.height + 1 &&
+                shape_b.avg_depth >= shape_a.avg_depth + 0.3 &&
+                shape_b.branching + 1 >= shape_a.branching &&
+                shape_b.root + 6 <= shape_a.root;
+            if (reverse_deeper_root_shift) {
+                run_ba_first = true;
+            }
+        }
+        if (force_first.empty() && n_value >= 28 && conflicts_ab == conflicts_ba &&
+            !run_ba_first && !forward_shape_locked) {
+            const bool reverse_deeper_less_branchy =
+                shape_b.avg_depth >= shape_a.avg_depth + 0.25 &&
+                shape_b.branching + 1 <= shape_a.branching;
+            const bool reverse_shifted_less_branchy =
+                n_value >= 29 &&
+                shape_b.branching + 2 <= shape_a.branching &&
+                shape_b.root >= shape_a.root + 8 &&
+                shape_b.avg_depth + 0.4 >= shape_a.avg_depth;
+            if (reverse_deeper_less_branchy || reverse_shifted_less_branchy) {
+                run_ba_first = true;
+            }
+        }
+        if (force_first.empty() && n_value >= 29 && conflicts_ab == conflicts_ba &&
+            !run_ba_first && !forward_shape_locked) {
+            const bool reverse_near_equal_shallow_shift =
+                n_value == 29 &&
+                shape_b.height + 1 == shape_a.height &&
+                shape_b.branching == shape_a.branching &&
+                shape_b.root > shape_a.root &&
+                shape_b.root <= shape_a.root + 3 &&
+                shape_b.avg_depth + 0.25 >= shape_a.avg_depth;
+            const bool reverse_compact_target =
+                n_value >= 30 &&
+                shape_a.height >= shape_b.height + 3 &&
+                shape_a.branching >= shape_b.branching + 3 &&
+                shape_b.root <= shape_a.root &&
+                shape_b.avg_depth + 0.6 >= shape_a.avg_depth;
+            if (reverse_near_equal_shallow_shift || reverse_compact_target) {
                 run_ba_first = true;
             }
         }

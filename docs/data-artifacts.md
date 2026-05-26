@@ -6,7 +6,15 @@ The repository tracks source, maintained tools, oracle source, and a small set o
 
 `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv` contains the current requested random sweep for `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
 
+`benchmarks/random_hard_limit_n23_35_summary.csv` contains the compact hard-limit summary across the baseline and larger random samples.
+
+`benchmarks/random_n26_27_boundary_summary.csv` contains the focused n=26..27 hard-boundary optimization summary, including strict 2s and 2.5s coverage before and after the direction-order lock.
+
+`benchmarks/random_n27_30_90_feasibility_summary.csv` contains the focused n=27..30 90% feasibility checks, including the strict 2s default, the current 2.5s reference, a 10s timeout probe, and Li-Xia-preserving cache/order experiments.
+
 `benchmarks/shared_convex_flipdist_vs_astar_n22_25_seeds0_100_timeout10_summary.csv` contains the retained shared-convex AStar comparison summary.
+
+`benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv` contains the fresh local no-Gurobi AStar comparison summary.
 
 ## Ignored
 

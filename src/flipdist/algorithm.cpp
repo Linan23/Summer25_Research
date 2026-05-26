@@ -39,6 +39,23 @@ struct CachedFreeEdge {
     std::pair<int, int> edge{-1, -1};
 };
 
+struct TargetChildRangeSet {
+    int stride = 0;
+    std::vector<unsigned char> present;
+
+    bool contains(int start, int end) const {
+        if (start < 0 || end < 0 || start >= stride || end >= stride) {
+            return false;
+        }
+        return present[static_cast<std::size_t>(start) * static_cast<std::size_t>(stride) +
+                       static_cast<std::size_t>(end)] != 0;
+    }
+
+    bool empty() const {
+        return present.empty();
+    }
+};
+
 struct HeuristicBundle {
     int conflict_lb = 0;
     int state_bounds_lb = 0;
@@ -291,6 +308,8 @@ struct EmptySChildCacheItem {
 
 struct EmptySChildCacheEntry {
     std::vector<EmptySChildCacheItem> items;
+    // Highest child budget whose candidate set is fully represented.
+    int coverage_child_k = -1;
 };
 
 struct EmptySChildCacheKey {
@@ -466,6 +485,7 @@ struct CommonEdgeDecomposeCacheValue {
 
 std::unordered_map<Key128, int, Key128Hash> g_conflict_cache;
 std::unordered_map<Key128, std::unordered_set<RP, RPH>, Key128Hash> g_target_edge_set_cache;
+std::unordered_map<Key128, TargetChildRangeSet, Key128Hash> g_target_child_range_cache;
 std::unordered_map<Key128, CachedFreeEdge, Key128Hash> g_free_edge_cache;
 std::unordered_map<Key128, HeuristicBundle, Key128Hash> g_heuristic_bundle_cache;
 std::unordered_map<Key128, int, Key128Hash> g_small_exact_dist_cache;
@@ -669,18 +689,22 @@ int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
 int pairIncumbentUpper(const Key128& pair_key);
 
 bool tdsPartitionCacheEnabled() {
-    static int cached = -1;
-    if (cached >= 0) return cached == 1;
-    const char* disable_env = std::getenv("FLIPDIST_DEBUG_DISABLE_PARTITION_CACHE");
-    if (disable_env && std::string(disable_env) == "1") {
-        cached = 0;
-    } else if (const char* enable_env = std::getenv("FLIPDIST_DEBUG_ENABLE_PARTITION_CACHE");
-               enable_env && std::string(enable_env) == "1") {
-        cached = 1;
-    } else {
-        cached = 0;
+    static int cached_mode = -1;
+    if (cached_mode < 0) {
+        const char* disable_env = std::getenv("FLIPDIST_DEBUG_DISABLE_PARTITION_CACHE");
+        if (disable_env && std::string(disable_env) == "1") {
+            cached_mode = 0;
+        } else if (const char* enable_env = std::getenv("FLIPDIST_DEBUG_ENABLE_PARTITION_CACHE");
+                   enable_env && std::string(enable_env) == "1") {
+            cached_mode = 1;
+        } else {
+            cached_mode = 2;
+        }
     }
-    return cached == 1;
+    if (cached_mode == 0) return false;
+    if (cached_mode == 1) return true;
+    const std::size_t n = g_active_problem_size;
+    return n >= 29;
 }
 
 bool tdsPartitionSplitCacheEnabled() {
@@ -766,20 +790,27 @@ bool emptySDedupEnabled() {
 }
 
 int emptySOrderMode() {
-    static int cached = INT_MIN;
-    if (cached != INT_MIN) return cached;
-    const char* env = std::getenv("FLIPDIST_EMPTY_S_ORDER");
-    const std::string mode = env ? std::string(env) : std::string();
-    if (mode.empty() || mode == "lb") {
-        cached = 0;
-    } else if (mode == "free") {
-        cached = 1;
-    } else if (mode == "conflict") {
-        cached = 2;
-    } else {
-        cached = 0;
+    static int cached_mode = INT_MIN;
+    if (cached_mode == INT_MIN) {
+        const char* env = std::getenv("FLIPDIST_EMPTY_S_ORDER");
+        const std::string mode = env ? std::string(env) : std::string();
+        if (mode.empty()) {
+            cached_mode = -1;
+        } else if (mode == "lb") {
+            cached_mode = 0;
+        } else if (mode == "free") {
+            cached_mode = 1;
+        } else if (mode == "conflict") {
+            cached_mode = 2;
+        } else {
+            cached_mode = 0;
+        }
     }
-    return cached;
+    if (cached_mode < 0) {
+        const std::size_t n = g_active_problem_size;
+        return n >= 29 ? 2 : 0;
+    }
+    return cached_mode;
 }
 
 bool emptySTightNoCacheEnabled() {
@@ -1412,17 +1443,21 @@ int smallExactBoundM() {
 }
 
 bool tdsPartitionPrecheckEnabled() {
-    static int cached = -1;
-    if (cached >= 0) {
-        return cached == 1;
+    static int cached_mode = -1;
+    if (cached_mode < 0) {
+        const char* env = std::getenv("FLIPDIST_TDS_PARTITION_PRECHECK");
+        if (env && std::string(env) == "0") {
+            cached_mode = 0;
+        } else if (env && std::string(env) == "1") {
+            cached_mode = 1;
+        } else {
+            cached_mode = 2;
+        }
     }
-    const char* env = std::getenv("FLIPDIST_TDS_PARTITION_PRECHECK");
-    if (env && std::string(env) == "0") {
-        cached = 0;
-    } else {
-        cached = 1;
-    }
-    return cached == 1;
+    if (cached_mode == 0) return false;
+    if (cached_mode == 1) return true;
+    const std::size_t n = g_active_problem_size;
+    return n == 0 || n < 23;
 }
 
 int localNoPathDepth() {
@@ -1580,10 +1615,44 @@ const std::unordered_set<RP, RPH>& cachedTargetEdgeSet(const VectorRangeTreeMap&
     return target_it->second;
 }
 
+const TargetChildRangeSet& cachedTargetChildRanges(const VectorRangeTreeMap& target) {
+    const Key128 target_key = makeKeyPair(target, target);
+    auto target_it = g_target_child_range_cache.find(target_key);
+    if (target_it == g_target_child_range_cache.end()) {
+        TargetChildRangeSet built;
+        std::vector<std::pair<int, int>> ranges;
+        ranges.reserve(target.original_nodes.size() * 2 + 1);
+        int max_endpoint = 0;
+        for (int v : target.original_nodes) {
+            if (!target.isOriginal(v)) continue;
+            for (int child : {target.getLeftChild(v), target.getRightChild(v)}) {
+                if (child >= 0 && target.isOriginal(child)) {
+                    auto cr = target.getRange(child);
+                    ranges.push_back(cr);
+                    max_endpoint = std::max(max_endpoint, std::max(cr.first, cr.second));
+                }
+            }
+        }
+        if (!ranges.empty()) {
+            built.stride = max_endpoint + 1;
+            built.present.assign(static_cast<std::size_t>(built.stride) *
+                                     static_cast<std::size_t>(built.stride),
+                                 0);
+            for (const auto& range : ranges) {
+                built.present[static_cast<std::size_t>(range.first) *
+                                  static_cast<std::size_t>(built.stride) +
+                              static_cast<std::size_t>(range.second)] = 1;
+            }
+        }
+        target_it = g_target_child_range_cache.emplace(target_key, std::move(built)).first;
+    }
+    return target_it->second;
+}
+
 std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
     const VectorRangeTreeMap& cur,
     const VectorRangeTreeMap& target) {
-    const auto& target_edges = cachedTargetEdgeSet(target);
+    const auto& target_edges = cachedTargetChildRanges(target);
     if (target_edges.empty()) {
         return {false, {-1, -1}};
     }
@@ -1647,7 +1716,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
                           parent_range.second,
                           new_child_range.first,
                           new_child_range.second};
-            if (target_edges.count(edge) && !has_current_child_range(edge)) {
+            if (target_edges.contains(edge.cs, edge.ce) && !has_current_child_range(edge)) {
                 return {true, {v, right_child}};
             }
         }
@@ -1665,7 +1734,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
                           parent_range.second,
                           new_child_range.first,
                           new_child_range.second};
-            if (target_edges.count(edge) && !has_current_child_range(edge)) {
+            if (target_edges.contains(edge.cs, edge.ce) && !has_current_child_range(edge)) {
                 return {true, {v, left_child}};
             }
         }
@@ -1705,10 +1774,10 @@ int collectOutgoingRangeEdgesForNodes(const VectorRangeTreeMap& tree,
 
 int countLocalConflicts(const std::array<RP, 4>& edges,
                         const int edge_count,
-                        const std::unordered_set<RP, RPH>& target_edges) {
+                        const TargetChildRangeSet& target_edges) {
     int conflicts = 0;
     for (int i = 0; i < edge_count; ++i) {
-        if (!target_edges.count(edges[i])) {
+        if (!target_edges.contains(edges[i].cs, edges[i].ce)) {
             ++conflicts;
         }
     }
@@ -1721,7 +1790,7 @@ int rotatedConflictCountFromLocalDelta(const int current_conflicts,
                                        const VectorRangeTreeMap& rotated_tree,
                                        const int first_node,
                                        const int second_node,
-                                       const std::unordered_set<RP, RPH>& target_edges) {
+                                       const TargetChildRangeSet& target_edges) {
     std::array<RP, 4> new_edges{};
     const int new_edge_count =
         collectOutgoingRangeEdgesForNodes(rotated_tree, first_node, second_node, new_edges);
@@ -1740,15 +1809,13 @@ int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
     }
     int value = 0;
     if (!start.original_inorder.empty() && !target.original_inorder.empty()) {
-        const auto& target_edges = cachedTargetEdgeSet(target);
+        const auto& target_edges = cachedTargetChildRanges(target);
         for (int v : start.original_inorder) {
             if (!start.isOriginal(v)) continue;
-            auto pr = start.getRange(v);
             for (int c : {start.getLeftChild(v), start.getRightChild(v)}) {
                 if (c >= 0 && start.isOriginal(c)) {
                     auto cr = start.getRange(c);
-                    RP edge{pr.first, pr.second, cr.first, cr.second};
-                    if (!target_edges.count(edge)) {
+                    if (!target_edges.contains(cr.first, cr.second)) {
                         ++value;
                     }
                 }
@@ -4013,6 +4080,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
     auto memoReturn = [&](bool value) {
         g_memo_tds[memo_key] = value;
         updateBounds(g_tds_bounds, bounds_key, k, value);
+        if (s_norm_empty) {
+            updateBounds(g_kbounds, pair_key, k, value);
+        }
         if (value) {
             updatePairIncumbentUpper(pair_key, k);
         }
@@ -4057,7 +4127,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
     struct UnfoldedStateMemoEntry {
         Key128 exact_key;
         Key128 bounds_key;
+        Key128 pair_key;
         int budget = 0;
+        bool empty_s = false;
     };
     std::vector<UnfoldedStateMemoEntry> unfolded_bounds_entries;
 
@@ -4065,6 +4137,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         for (const auto& entry : unfolded_bounds_entries) {
             g_memo_tds[entry.exact_key] = value;
             updateBounds(g_tds_bounds, entry.bounds_key, entry.budget, value);
+            if (entry.empty_s) {
+                updateBounds(g_kbounds, entry.pair_key, entry.budget, value);
+            }
         }
         return memoReturn(value);
     };
@@ -4109,7 +4184,12 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             }
             return commitResult(state_bounds_value);
         }
-        unfolded_bounds_entries.push_back({state_key, state_bounds_key, k_work});
+        unfolded_bounds_entries.push_back({
+            state_key,
+            state_bounds_key,
+            work_pair_key,
+            k_work,
+            s_work_empty});
 
         const bool partition_cache_enabled = tdsPartitionCacheEnabled();
 
@@ -4473,6 +4553,17 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     side_pair_key,
                     side_bounds_key};
             };
+            const auto minSuccessBudgetAtMost = [](const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
+                                                   const Key128& key,
+                                                   const int fallback_budget) -> int {
+                auto it = bounds_map.find(key);
+                if (it != bounds_map.end() &&
+                    it->second.min_success >= 0 &&
+                    it->second.min_success <= fallback_budget) {
+                    return it->second.min_success;
+                }
+                return fallback_budget;
+            };
             const auto checkSidePartitionFeasibility = [&](const VectorRangeTreeMap& side_bar,
                                                            const VectorRangeTreeMap& side_end,
                                                            const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&
@@ -4483,15 +4574,28 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                                                            const bool side_empty,
                                                            const int side_budget,
                                                            const bool is_side1) -> bool {
-                if (side_empty && side_pair_incumbent < std::numeric_limits<int>::max() &&
-                    side_pair_incumbent <= side_budget) {
-                    auto& state_cache_entry = g_free_edge_partition_side_budget_cache
-                                                 .try_emplace(makeSideBudgetCacheKey(side_pair_key, side_bounds_key),
+                const auto side_cache_key = makeSideBudgetCacheKey(side_pair_key, side_bounds_key);
+                auto noteSideFeasible = [&](const int feasible_budget) {
+                    auto& side_cache_entry = g_free_edge_partition_side_budget_cache
+                                                 .try_emplace(side_cache_key,
                                                               FreeEdgePartitionSideBudgetCacheEntry{})
                                                  .first->second;
-                    state_cache_entry.computed = true;
-                    state_cache_entry.known_min_feasible_budget =
-                        std::min(state_cache_entry.known_min_feasible_budget, side_budget);
+                    side_cache_entry.computed = true;
+                    side_cache_entry.known_min_feasible_budget =
+                        std::min(side_cache_entry.known_min_feasible_budget, feasible_budget);
+                };
+                auto noteSideInfeasible = [&](const int infeasible_budget) {
+                    auto& side_cache_entry = g_free_edge_partition_side_budget_cache
+                                                 .try_emplace(side_cache_key,
+                                                              FreeEdgePartitionSideBudgetCacheEntry{})
+                                                 .first->second;
+                    side_cache_entry.computed = true;
+                    side_cache_entry.known_not_feasible_below =
+                        std::max(side_cache_entry.known_not_feasible_below, infeasible_budget);
+                };
+                if (side_empty && side_pair_incumbent < std::numeric_limits<int>::max() &&
+                    side_pair_incumbent <= side_budget) {
+                    noteSideFeasible(side_pair_incumbent);
                     return true;
                 }
 
@@ -4505,23 +4609,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                                 g_profile.partition_side2_bound_hits++;
                             }
                         }
-                        auto& side_cache_entry = g_free_edge_partition_side_budget_cache
-                                                     .try_emplace(makeSideBudgetCacheKey(side_pair_key, side_bounds_key),
-                                                                  FreeEdgePartitionSideBudgetCacheEntry{})
-                                                     .first->second;
-                        side_cache_entry.computed = true;
-                        side_cache_entry.known_not_feasible_below =
-                            std::max(side_cache_entry.known_not_feasible_below, side_budget);
+                        noteSideInfeasible(side_budget);
                         return false;
                     }
                     if (side_empty) {
-                        auto& side_cache_entry = g_free_edge_partition_side_budget_cache
-                                                     .try_emplace(makeSideBudgetCacheKey(side_pair_key, side_bounds_key),
-                                                                  FreeEdgePartitionSideBudgetCacheEntry{})
-                                                     .first->second;
-                        side_cache_entry.computed = true;
-                        side_cache_entry.known_min_feasible_budget =
-                            std::min(side_cache_entry.known_min_feasible_budget, side_budget);
+                        noteSideFeasible(minSuccessBudgetAtMost(g_kbounds, side_pair_key, side_budget));
                         return true;
                     }
                 }
@@ -4536,22 +4628,14 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             g_profile.partition_side2_bound_hits++;
                         }
                     }
-                    auto& side_cache_entry = g_free_edge_partition_side_budget_cache
-                                                 .try_emplace(makeSideBudgetCacheKey(side_pair_key, side_bounds_key),
-                                                              FreeEdgePartitionSideBudgetCacheEntry{})
-                                                 .first->second;
-                    side_cache_entry.computed = true;
                     if (known) {
-                        side_cache_entry.known_min_feasible_budget =
-                            std::min(side_cache_entry.known_min_feasible_budget, side_budget);
+                        noteSideFeasible(minSuccessBudgetAtMost(g_tds_bounds, side_bounds_key, side_budget));
                     } else {
-                        side_cache_entry.known_not_feasible_below =
-                            std::max(side_cache_entry.known_not_feasible_below, side_budget);
+                        noteSideInfeasible(side_budget);
                     }
                     return known;
                 }
 
-                const auto side_cache_key = makeSideBudgetCacheKey(side_pair_key, side_bounds_key);
                 const auto side_cache_it = g_free_edge_partition_side_budget_cache.find(side_cache_key);
                 if (side_cache_it != g_free_edge_partition_side_budget_cache.end() &&
                     side_cache_it->second.computed) {
@@ -4579,16 +4663,10 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                         g_profile.partition_side2_recursions++;
                     }
                 }
-                auto& side_cache_entry = g_free_edge_partition_side_budget_cache
-                                             .try_emplace(side_cache_key, FreeEdgePartitionSideBudgetCacheEntry{})
-                                             .first->second;
-                side_cache_entry.computed = true;
                 if (feasible) {
-                    side_cache_entry.known_min_feasible_budget =
-                        std::min(side_cache_entry.known_min_feasible_budget, side_budget);
+                    noteSideFeasible(side_budget);
                 } else {
-                    side_cache_entry.known_not_feasible_below =
-                        std::max(side_cache_entry.known_not_feasible_below, side_budget);
+                    noteSideInfeasible(side_budget);
                 }
                 return feasible;
             };
@@ -5443,6 +5521,8 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         const int order_mode = emptySOrderMode();
         const bool use_free_hint = (g_empty_s_disable_free_hint_depth == 0);
         const bool use_incumbent_prune = incumbentPruneEnabled();
+        // Only the non-default tight-cache experiment needs budget-complete entries.
+        const bool budget_safe_empty_s_cache = !emptySTightNoCacheEnabled();
         const auto computeFreeHint = [&](RotationCandidate& candidate, const VectorRangeTreeMap& probe_state) {
             auto [probe_has_free, probe_free_edge] =
                 cachedFindFreeEdge(probe_state, T_end, candidate.child_pair_key);
@@ -5514,7 +5594,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             return true;
         };
         auto edges = getInternalEdges(T_work);
-        const auto& s_empty_target_edges = cachedTargetEdgeSet(T_end);
+        const auto& s_empty_target_edges = cachedTargetChildRanges(T_end);
         std::vector<RotationCandidate> candidates;
         candidates.reserve(edges.size());
         std::vector<RotationCandidate> plateau_candidates;
@@ -5644,7 +5724,8 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                                                               parent,
 	                                                               child,
 	                                                               s_empty_target_edges);
-	                        if (next_conflicts_hint > child_k) {
+	                        if (next_conflicts_hint > child_k &&
+	                            !(build_new_cache && budget_safe_empty_s_cache)) {
 	                            rollbackRotation();
 	                            continue;
 	                        }
@@ -5657,7 +5738,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                            continue;
 	                        }
 
-	                        EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
+                        EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
                         Key128 child_pair_key = child_keys.pair_key;
                         const bool repeated_pair_state =
                             std::find(seen_child_pair_keys.begin(),
@@ -5765,6 +5846,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 built_candidates.reserve(best_signature_states.size());
                 if (build_new_cache) {
                     EmptySChildCacheEntry cache_entry;
+                    cache_entry.coverage_child_k = budget_safe_empty_s_cache
+                                                       ? std::numeric_limits<int>::max()
+                                                       : child_k;
                     cache_entry.items.reserve(best_signature_states.size());
                     for (auto&& entry : best_signature_states) {
                         auto& cand = entry.second;
@@ -5785,7 +5869,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             built_candidates.push_back(cand);
                         }
                     }
-                    g_empty_s_child_cache.emplace(cache_key, std::move(cache_entry));
+                    g_empty_s_child_cache.insert_or_assign(cache_key, std::move(cache_entry));
                 } else {
                     for (auto&& entry : best_signature_states) {
                         if (entry.second.child_lb <= child_k) {
@@ -5799,6 +5883,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                must_drop_conflict_now && emptySTightNoCacheEnabled();
 	            auto cache_it = tight_no_cache ? g_empty_s_child_cache.end()
 	                                           : g_empty_s_child_cache.find(cache_key);
+	            if (budget_safe_empty_s_cache &&
+	                cache_it != g_empty_s_child_cache.end() &&
+	                cache_it->second.coverage_child_k < child_k) {
+	                cache_it = g_empty_s_child_cache.end();
+	            }
 	            if (cache_it == g_empty_s_child_cache.end()) {
 	                cached_candidates = buildCacheAndCollect(!tight_no_cache);
 	                if (early_commit) {
@@ -6407,16 +6496,20 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
     if (n_for_reserve >= 23) {
         const size_t state_reserve = n_for_reserve >= 25 ? 1200000ULL : (n_for_reserve == 24 ? 800000ULL : 650000ULL);
         const size_t side_reserve = state_reserve / 2;
+        g_kbounds.max_load_factor(0.5f);
         g_memo_tds.max_load_factor(0.5f);
         g_tds_bounds.max_load_factor(0.5f);
         g_conflict_cache.max_load_factor(0.5f);
+        g_target_child_range_cache.max_load_factor(0.5f);
         g_free_edge_cache.max_load_factor(0.5f);
         g_empty_s_child_cache.max_load_factor(0.5f);
         g_free_edge_partition_side_budget_cache.max_load_factor(0.5f);
         g_pair_incumbent_upper.max_load_factor(0.5f);
+        g_kbounds.reserve(state_reserve);
         g_memo_tds.reserve(state_reserve);
         g_tds_bounds.reserve(state_reserve);
         g_conflict_cache.reserve(state_reserve);
+        g_target_child_range_cache.reserve(side_reserve);
         g_free_edge_cache.reserve(state_reserve);
         g_empty_s_child_cache.reserve(side_reserve);
         g_free_edge_partition_side_budget_cache.reserve(side_reserve);
@@ -6511,6 +6604,7 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
 void resetAlgorithmCaches() {
     g_conflict_cache.clear();
     g_target_edge_set_cache.clear();
+    g_target_child_range_cache.clear();
     g_free_edge_cache.clear();
     g_heuristic_bundle_cache.clear();
     g_small_exact_dist_cache.clear();
