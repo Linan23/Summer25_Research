@@ -1,0 +1,29 @@
+scenario,n,seed_min,seed_max,timeout_sec,max_k,directed_ok,directed_total,directed_ok_pct,pair_ok,pair_total,pair_ok_pct,median_solved_pair_max_ms,timeout_seeds,notes
+current_2s,27,0,20,2,3n,36,42,85.71,18,21,85.71,46.073,5;9;14,current strict 2-second benchmark
+current_2s,28,0,20,2,3n,26,42,61.90,13,21,61.90,56.670,1;5;7;9;11;14;17;20,current strict 2-second benchmark
+current_2s,29,0,20,2,3n,24,42,57.14,12,21,57.14,118.624,4;7;10;11;13;14;16;17;20,current strict 2-second benchmark
+current_2s,30,0,20,2,3n,24,42,57.14,12,21,57.14,83.463,1;2;9;11;13;14;16;17;20,current strict 2-second benchmark
+current_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,44.148,5;9;14,current default retained benchmark
+current_2p5s,28,0,20,2.5,3n,26,42,61.90,13,21,61.90,51.089,1;5;7;9;11;14;17;20,current default retained benchmark
+current_2p5s,29,0,20,2.5,3n,24,42,57.14,12,21,57.14,112.539,4;7;10;11;13;14;16;17;20,current default retained benchmark
+current_2p5s,30,0,20,2.5,3n,24,42,57.14,12,21,57.14,82.502,1;2;9;11;13;14;16;17;20,current default retained benchmark
+current_10s,27,0,20,10,3n,36,42,85.71,18,21,85.71,43.456,5;9;14,higher-timeout feasibility check
+current_10s,28,0,20,10,3n,32,42,76.19,16,21,76.19,132.630,7;9;11;14;17,higher-timeout feasibility check
+current_10s,29,0,20,10,3n,30,42,71.43,15,21,71.43,216.542,4;7;11;14;17;20,higher-timeout feasibility check
+current_10s,30,0,20,10,3n,30,42,71.43,15,21,71.43,291.218,1;9;11;14;17;20,higher-timeout feasibility check
+cache_conflict_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,45.306,5;9;14,forced partition cache plus conflict-first empty-S ordering
+cache_conflict_2p5s,28,0,20,2.5,3n,26,42,61.90,13,21,61.90,55.850,1;5;7;9;11;14;17;20,forced partition cache plus conflict-first empty-S ordering
+cache_conflict_2p5s,29,0,20,2.5,3n,24,42,57.14,12,21,57.14,105.441,4;7;10;11;13;14;16;17;20,forced partition cache plus conflict-first empty-S ordering
+cache_conflict_2p5s,30,0,20,2.5,3n,24,42,57.14,12,21,57.14,84.178,1;2;9;11;13;14;16;17;20,forced partition cache plus conflict-first empty-S ordering
+splitcache_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,45.001,5;9;14,forced partition split cache
+splitcache_2p5s,28,0,20,2.5,3n,26,42,61.90,13,21,61.90,57.029,1;5;7;9;11;14;17;20,forced partition split cache
+splitcache_2p5s,29,0,20,2.5,3n,24,42,57.14,12,21,57.14,121.357,4;7;10;11;13;14;16;17;20,forced partition split cache
+splitcache_2p5s,30,0,20,2.5,3n,24,42,57.14,12,21,57.14,84.672,1;2;9;11;13;14;16;17;20,forced partition split cache
+cache_conflict_2s,27,0,20,2,3n,34,42,80.95,17,21,80.95,40.515,5;9;11;14,forced partition cache plus conflict-first empty-S ordering under strict 2 seconds
+cache_conflict_2s,28,0,20,2,3n,26,42,61.90,13,21,61.90,51.637,1;5;7;9;11;14;17;20,forced partition cache plus conflict-first empty-S ordering under strict 2 seconds
+cache_conflict_2s,29,0,20,2,3n,24,42,57.14,12,21,57.14,116.794,4;7;10;11;13;14;16;17;20,forced partition cache plus conflict-first empty-S ordering under strict 2 seconds
+cache_conflict_2s,30,0,20,2,3n,24,42,57.14,12,21,57.14,90.789,1;2;9;11;13;14;16;17;20,forced partition cache plus conflict-first empty-S ordering under strict 2 seconds
+splitcache_2s,27,0,20,2,3n,34,42,80.95,17,21,80.95,40.233,5;9;11;14,forced partition split cache under strict 2 seconds
+splitcache_2s,28,0,20,2,3n,26,42,61.90,13,21,61.90,55.164,1;5;7;9;11;14;17;20,forced partition split cache under strict 2 seconds
+splitcache_2s,29,0,20,2,3n,22,42,52.38,11,21,52.38,125.207,1;4;7;10;11;13;14;16;17;20,forced partition split cache under strict 2 seconds
+splitcache_2s,30,0,20,2,3n,24,42,57.14,12,21,57.14,87.727,1;2;9;11;13;14;16;17;20,forced partition split cache under strict 2 seconds

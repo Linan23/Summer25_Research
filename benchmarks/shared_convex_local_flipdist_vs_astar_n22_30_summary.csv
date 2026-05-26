@@ -1,0 +1,10 @@
+benchmark,n,seed_min,seed_max,case_timeout_sec,rows,status_ok,status_timeout_flipdist,status_timeout_astar,flipdist_samples,flipdist_median_ms,astar_simple_samples,astar_simple_median_ms,paired_simple_samples,paired_simple_flipdist_median_ms,paired_simple_astar_median_ms,paired_simple_flipdist_wins,astar_combined_samples,astar_combined_median_ms,paired_combined_samples,paired_combined_flipdist_median_ms,paired_combined_astar_median_ms,paired_combined_flipdist_wins
+local_nogurobi_astar,22,0,20,10,21,18,1,2,20,9.764,18,168.500,18,4.803,168.500,15,18,163.000,18,4.803,163.000,15
+local_nogurobi_astar,23,0,20,10,21,16,1,4,20,11.517,18,125.500,18,10.397,125.500,14,16,103.000,16,9.812,103.000,12
+local_nogurobi_astar,24,0,20,10,21,13,2,6,19,23.542,15,185.000,15,9.909,185.000,13,13,128.000,13,9.320,128.000,11
+local_nogurobi_astar,25,0,20,10,21,16,2,3,19,17.944,16,40.500,16,14.226,40.500,13,16,38.500,16,14.226,38.500,13
+local_nogurobi_astar,26,0,10,10,11,7,1,3,10,27.463,8,327.500,8,22.277,327.500,7,7,86.000,7,19.178,86.000,6
+local_nogurobi_astar,27,0,10,10,11,8,1,2,10,85.647,8,350.500,8,55.412,350.500,6,8,343.000,8,55.412,343.000,6
+local_nogurobi_astar,28,0,10,10,11,4,2,5,9,323.901,6,475.500,6,53.855,475.500,4,4,260.500,4,34.169,260.500,2
+local_nogurobi_astar,29,0,10,10,11,4,5,2,6,72.993,4,759.000,4,30.836,759.000,4,4,779.500,4,30.836,779.500,4
+local_nogurobi_astar,30,0,10,10,11,6,3,2,8,16.869,7,149.000,7,12.121,149.000,7,6,160.000,6,11.693,160.000,6

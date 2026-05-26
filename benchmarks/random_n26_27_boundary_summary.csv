@@ -1,0 +1,21 @@
+scenario,n,seed_min,seed_max,timeout_sec,max_k,directed_ok,directed_total,directed_ok_pct,pair_ok,pair_total,pair_ok_pct,median_solved_pair_max_ms,timeout_seeds,notes
+baseline_2s,26,0,20,2,3n,38,42,90.48,19,21,90.48,23.546,14;20,current state before n26 direction-order lock
+baseline_2s,27,0,20,2,3n,34,42,80.95,17,21,80.95,47.174,5;9;11;14,current state before n26 direction-order lock
+forward_lock_2s,26,0,20,2,3n,40,42,95.24,20,21,95.24,26.770,14,n26/n27 boundary direction-order lock
+forward_lock_2s,27,0,20,2,3n,36,42,85.71,18,21,85.71,44.251,5;9;14,n26/n27 boundary direction-order lock
+baseline_2p5s,26,0,20,2.5,3n,40,42,95.24,20,21,95.24,24.968,14,current state before n26 direction-order lock
+baseline_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,43.269,5;9;14,current state before n26 direction-order lock
+forward_lock_2p5s,26,0,20,2.5,3n,40,42,95.24,20,21,95.24,25.300,14,n26/n27 boundary direction-order lock
+forward_lock_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,43.280,5;9;14,n26/n27 boundary direction-order lock
+sidecache_tight_2s,26,0,20,2,3n,40,42,95.24,20,21,95.24,25.970,14,records smaller known feasible side budgets when available
+sidecache_tight_2s,27,0,20,2,3n,36,42,85.71,18,21,85.71,42.848,5;9;14,records smaller known feasible side budgets when available
+sidecache_tight_2p5s,26,0,20,2.5,3n,40,42,95.24,20,21,95.24,24.934,14,records smaller known feasible side budgets when available
+sidecache_tight_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,44.214,5;9;14,records smaller known feasible side budgets when available
+empty_s_pairbounds_2s,26,0,20,2,3n,40,42,95.24,20,21,95.24,26.384,14,records empty-S TreeDistS outcomes into pair-distance bounds
+empty_s_pairbounds_2s,27,0,20,2,3n,36,42,85.71,18,21,85.71,43.844,5;9;14,records empty-S TreeDistS outcomes into pair-distance bounds
+empty_s_pairbounds_2p5s,26,0,20,2.5,3n,40,42,95.24,20,21,95.24,27.143,14,records empty-S TreeDistS outcomes into pair-distance bounds
+empty_s_pairbounds_2p5s,27,0,20,2.5,3n,36,42,85.71,18,21,85.71,40.971,5;9;14,records empty-S TreeDistS outcomes into pair-distance bounds
+cache_conflict_2s,26,0,20,2,3n,40,42,95.24,20,21,95.24,23.499,14,forced partition cache plus conflict-first empty-S ordering
+cache_conflict_2s,27,0,20,2,3n,34,42,80.95,17,21,80.95,40.043,5;9;11;14,forced partition cache plus conflict-first empty-S ordering
+splitcache_2s,26,0,20,2,3n,40,42,95.24,20,21,95.24,23.578,14,forced partition split cache
+splitcache_2s,27,0,20,2,3n,34,42,80.95,17,21,80.95,40.785,5;9;11;14,forced partition split cache

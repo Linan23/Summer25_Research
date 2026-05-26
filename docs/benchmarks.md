@@ -28,6 +28,82 @@ python3 tools/sweep_flipdist_limits.py \
 
 The retained headline summary is copied to `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv`.
 
+Hard-limit sweeps:
+
+```bash
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 26 --n-max 30 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2.5 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n26_30_s0_20_t2p5_m3.csv
+
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 31 --n-max 35 \
+  --seed-min 0 --seed-max 10 \
+  --timeout-sec 2.5 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n31_35_s0_10_t2p5_m3.csv
+```
+
+The curated hard-limit summary is retained in `benchmarks/random_hard_limit_n23_35_summary.csv`; interpretation is in `docs/hard-limit-analysis.md`.
+
+Focused `n=26..27` boundary checks:
+
+```bash
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 26 --n-max 27 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n26_27_s0_20_t2_m3.csv
+
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 26 --n-max 27 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2.5 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n26_27_s0_20_t2p5_m3.csv
+```
+
+The focused boundary summary is retained in `benchmarks/random_n26_27_boundary_summary.csv`.
+
+Focused `n=27..30` 90% feasibility checks:
+
+```bash
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 27 --n-max 30 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n27_30_s0_20_t2_m3.csv
+
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 27 --n-max 30 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 10 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n27_30_s0_20_t10_m3.csv
+
+FLIPDIST_DEBUG_ENABLE_PARTITION_CACHE=1 FLIPDIST_EMPTY_S_ORDER=conflict \
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 27 --n-max 30 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n27_30_s0_20_t2_cache_conflict.csv
+
+FLIPDIST_DEBUG_ENABLE_PARTITION_SPLIT_CACHE=1 \
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 27 --n-max 30 \
+  --seed-min 0 --seed-max 20 \
+  --timeout-sec 2 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n27_30_s0_20_t2_splitcache.csv
+```
+
+The focused feasibility summary is retained in `benchmarks/random_n27_30_90_feasibility_summary.csv`.
+
 ## Java Parity
 
 Compile the Java oracle:
@@ -93,6 +169,36 @@ python3 tools/plot_flipdist_vs_astar_compare.py \
   --output results/shared_convex_flipdist_vs_astar_n22_25_seeds0_100_timeout10.svg \
   --summary-output results/shared_convex_flipdist_vs_astar_n22_25_seeds0_100_timeout10_summary.csv
 ```
+
+A local no-Gurobi AStar build can be used for `simple` and `combined` comparisons when Gurobi is unavailable, but the checkout and patch stay under ignored `third_party/`. The current local comparable summary is retained in `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`.
+
+The local summary was produced from two bounded sweeps:
+
+```bash
+python3 tools/run_shared_convex_flipdist_vs_astar_sweep.py \
+  --case random --n-min 22 --n-max 25 \
+  --seed-min 0 --seed-max 20 \
+  --case-timeout-sec 10 \
+  --flipdist-max-k 90 \
+  --astar-binary third_party/AStarFlipDistance/build-nogurobi/A_star_for_flipdistance \
+  --astar-algos simple,combined \
+  --shared-root results/shared_convex_bench \
+  --output results/shared_convex_flipdist_vs_astar_n22_25_s0_20.csv \
+  --summary-output results/shared_convex_flipdist_vs_astar_n22_25_s0_20_summary.csv
+
+python3 tools/run_shared_convex_flipdist_vs_astar_sweep.py \
+  --case random --n-min 26 --n-max 30 \
+  --seed-min 0 --seed-max 10 \
+  --case-timeout-sec 10 \
+  --flipdist-max-k 100 \
+  --astar-binary third_party/AStarFlipDistance/build-nogurobi/A_star_for_flipdistance \
+  --astar-algos simple,combined \
+  --shared-root results/shared_convex_bench \
+  --output results/shared_convex_flipdist_vs_astar_n26_30_s0_10.csv \
+  --summary-output results/shared_convex_flipdist_vs_astar_n26_30_s0_10_summary.csv
+```
+
+When timeout subsets differ, prefer paired-row medians over raw solved-case medians.
 
 ## Metric Notes
 

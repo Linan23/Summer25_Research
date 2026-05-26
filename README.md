@@ -21,7 +21,11 @@ Single-run timing has small variance near the 2s boundary, so the under-2s count
 
 ## AStarFlipDistance Comparison
 
-AStarFlipDistance is optional and is not vendored in this repository. Existing shared-convex benchmark summaries show A* has faster median runtime on the shared-convex cases it solves, while FlipDist has slightly higher completion coverage in the retained summary. Use `--astar-binary` with the benchmark tools to compare against a local external AStar build.
+AStarFlipDistance is optional and is not vendored in this repository. Existing retained shared-convex summaries show A* faster on one prior dataset/build. A fresh local no-Gurobi AStar comparison on identical shared-convex inputs (`n=22..30`) shows FlipDist faster on paired solved-case median runtime for each n in that sample. Use `--astar-binary` with the benchmark tools to compare against a local external AStar build.
+
+The current practical limit evidence is summarized in `docs/hard-limit-analysis.md`: baseline coverage is preserved at `95.0%`, the `n=26`, seeds `0..20` slice remains at `95.2%`, and the latest n=26..27 boundary pass improves strict-2s combined coverage from `72/84 = 85.7%` to `76/84 = 90.5%` by recovering direction-order margin cases. A focused 90% feasibility check for `n=27..30` still marks the preserved Li-Xia structure as the practical limit under the strict 2s benchmark: current 2s coverage is `110/168 = 65.5%`, cache/order experiments do not improve it, and a 10s probe reaches only `128/168 = 76.2%`.
+
+Latest n=27 target pass: `n=27`, seeds `0..20`, remains at `36/42 = 85.7%` under both strict `2s` and `2.5s`; reaching 90% would require `38/42`. The persistent timeout seeds are `5`, `9`, and `14`. A Li-Xia-preserving empty-`S` pair-bound propagation pass preserved n=26 coverage at `40/42 = 95.2%` but did not recover a hard n=27 seed, reinforcing that the current bottleneck is structural `TreeDistS/S.empty()` partition recursion rather than a simple cache/order miss.
 
 ## Quick Start
 
@@ -67,6 +71,7 @@ python3 tools/run_flipdist_java_parity.py \
 
 - `docs/architecture.md`: solver components and Li-Xia flow.
 - `docs/benchmarks.md`: maintained benchmark and parity commands.
+- `docs/hard-limit-analysis.md`: current hard-limit, hard-case profile, and AStar comparison evidence.
 - `docs/development.md`: build/test workflow and contribution expectations.
 - `docs/data-artifacts.md`: retained artifacts, ignored outputs, and regeneration policy.
 
