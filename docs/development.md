@@ -1,6 +1,6 @@
 # Development
 
-Keep solver behavior unchanged unless a task explicitly asks for a semantic change. The C++ implementation is an exact solver, so performance work must preserve distance definitions, directed output semantics, and search-complete behavior for the configured `max_k`.
+This project is both a solver implementation and a research benchmark package. Keep solver behavior unchanged unless a task explicitly asks for a semantic change. Because FlipDist is an exact solver, performance work must preserve the distance definition, directed output rows, and search-complete behavior for the configured `max_k`.
 
 ## Build
 
@@ -30,7 +30,7 @@ python3 tools/run_flipdist_java_parity.py \
 
 ## Optimization Guidelines
 
-The current bottleneck is `TreeDistS` in `S.empty()`, especially partition budget-loop time and repeated split exploration. Changes in this area should be paired with:
+The current bottleneck is `TreeDistS` in `S.empty()`. Hard cases spend most of their time repeating partition-side checks and budget-loop work. Changes in this area should be paired with:
 
 - Java parity on feasible oracle ranges.
 - A random sweep sanity run for `n=23..25`, seeds `0..20`.
@@ -38,6 +38,17 @@ The current bottleneck is `TreeDistS` in `S.empty()`, especially partition budge
 - Wall-time comparison against the retained current benchmark.
 
 Prefer narrow changes that fit the existing Li-Xia decomposition, cache structure, and CLI output contract. Avoid algorithm rewrites during optimization passes unless the project explicitly changes direction.
+
+## Before Handing Off A Change
+
+Use this checklist for code changes:
+
+- Build in Release mode.
+- Run the two smoke tests.
+- Run Java parity if solver behavior changed.
+- Run a small random sweep before a full benchmark.
+- Update retained benchmark files only when the run is meant to document project state.
+- Update docs when a result changes the current performance or hard-limit story.
 
 ## Maintained Script Expectations
 
