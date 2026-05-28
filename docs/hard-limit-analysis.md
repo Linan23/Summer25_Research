@@ -1,142 +1,124 @@
 # Hard-Limit Analysis
 
-This note summarizes the current evidence for the practical limit of the Li-Xia-structured FlipDist solver. The solver remains exact and search-complete for the configured `max_k`; the measurements below describe wall-clock coverage under fixed benchmark timeouts.
+This page explains where the current FlipDist solver works well, where it starts to time out, and what the benchmark numbers mean. It is written for both researchers and users who want the current project state without reading the solver code first.
+
+FlipDist is still an exact solver. A timeout does not mean the distance is wrong. It means the solver did not finish within the benchmark time cap.
+
+## How To Read The Tables
+
+- `n` is the tree size used by the random generator.
+- Each seed creates one tree pair.
+- Each pair is tested in two directions: `a->b` and `b->a`.
+- `Directed solves` counts both directions, so seeds `0..100` give `202` directed rows.
+- `Solved pairs` counts a seed only when both directions finish.
+- `max_k=3n` is the search budget cap. The solver remains complete for the configured `max_k`.
+- The full `n=26..35` sweep below uses a strict `2s` process cap. If the process exceeds that cap before both JSON rows return, both rows are recorded as timeout by the harness.
 
 ## Current Baseline
 
-The retained baseline is random rooted binary tree instances with `max_k=3n`, timeout `2.5s`, and seeds `0..100` for `n=23..25`.
+The maintained baseline remains `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
 
-- Directed exact solves: `576/606 = 95.05%`.
-- Per-instance first-direction coverage: `288/303 = 95.05%`.
-- Directed coverage by n: `n=23: 198/202`, `n=24: 186/202`, `n=25: 192/202`.
+| n | Directed solves | Solved pairs | Median time on solved pairs |
+|---:|---:|---:|---:|
+| 23 | 198/202 = 98.0% | 99/101 = 98.0% | 37.2 ms |
+| 24 | 186/202 = 92.1% | 93/101 = 92.1% | 22.9 ms |
+| 25 | 192/202 = 95.0% | 96/101 = 95.0% | 24.3 ms |
 
-This preserves the target `>=95%` baseline coverage. Timing near the `2.5s` boundary has measurable run-to-run variance.
+Combined directed coverage is `576/606 = 95.0%`. This is the stable baseline range for the current solver.
 
-## Larger Random Instances
+## Full n=26..35 Sweep
 
-The random hard-limit sweep uses the same `max_k=3n` and `2.5s` timeout.
+Latest full hard-limit sweep: random `n=26..35`, seeds `0..100`, timeout `2s`, `max_k=3n`.
 
-| n | Seeds | Directed solves | Instance solves | Median solved pair max |
-|---|---:|---:|---:|---:|
-| 26 | 0..20 | 40/42 = 95.24% | 20/21 = 95.24% | 25.300 ms |
-| 27 | 0..20 | 36/42 = 85.71% | 18/21 = 85.71% | 43.280 ms |
-| 28 | 0..20 | 26/42 = 61.90% | 13/21 = 61.90% | 51.089 ms |
-| 29 | 0..20 | 24/42 = 57.14% | 12/21 = 57.14% | 112.539 ms |
-| 30 | 0..20 | 24/42 = 57.14% | 12/21 = 57.14% | 82.502 ms |
-| 31 | 0..10 | 10/22 = 45.45% | 5/11 = 45.45% | 39.252 ms |
-| 32 | 0..10 | 14/22 = 63.64% | 7/11 = 63.64% | 137.275 ms |
-| 33 | 0..10 | 10/22 = 45.45% | 5/11 = 45.45% | 25.470 ms |
-| 34 | 0..10 | 10/22 = 45.45% | 5/11 = 45.45% | 192.874 ms |
-| 35 | 0..10 | 10/22 = 45.45% | 5/11 = 45.45% | 30.529 ms |
+| n | Solved pairs | Directed solves | Median time on solved pairs | Timeout seeds |
+|---:|---:|---:|---:|---|
+| 26 | 85/101 = 84.2% | 170/202 = 84.2% | 31.5 ms | 14, 24, 25, 30, 32, 59, 62, 67, 69, 72, ... (16 total) |
+| 27 | 80/101 = 79.2% | 160/202 = 79.2% | 43.4 ms | 5, 9, 11, 14, 32, 40, 44, 47, 48, 54, ... (21 total) |
+| 28 | 64/101 = 63.4% | 128/202 = 63.4% | 45.7 ms | 1, 5, 7, 9, 11, 14, 17, 20, 25, 26, ... (37 total) |
+| 29 | 57/101 = 56.4% | 114/202 = 56.4% | 33.4 ms | 1, 4, 7, 10, 11, 13, 14, 16, 17, 20, ... (44 total) |
+| 30 | 54/101 = 53.5% | 108/202 = 53.5% | 32.4 ms | 1, 2, 7, 9, 11, 13, 14, 16, 17, 20, ... (47 total) |
+| 31 | 49/101 = 48.5% | 98/202 = 48.5% | 72.3 ms | 1, 2, 4, 5, 8, 9, 11, 12, 14, 17, ... (52 total) |
+| 32 | 45/101 = 44.5% | 90/202 = 44.5% | 83.8 ms | 1, 4, 9, 10, 11, 12, 14, 15, 16, 17, ... (56 total) |
+| 33 | 47/101 = 46.5% | 94/202 = 46.5% | 128.4 ms | 0, 1, 4, 7, 8, 12, 13, 14, 18, 26, ... (54 total) |
+| 34 | 44/101 = 43.6% | 88/202 = 43.6% | 119.9 ms | 0, 1, 4, 6, 9, 10, 11, 12, 13, 14, ... (57 total) |
+| 35 | 37/101 = 36.6% | 74/202 = 36.6% | 91.8 ms | 3, 5, 6, 8, 10, 11, 12, 13, 15, 19, ... (64 total) |
 
-The practical limit is not a clean n cutoff. The `n=26`, seeds `0..20` slice still reaches the `>=95%` target, but hard shape families become common enough by `n=27` that 2.5s coverage again drops below the baseline target. A direction-order probe found that the low-millisecond reverse-direction probe used for the `n=23..25` baseline was counterproductive on several `n>=26` hard cases, so the default now keeps that probe only for `n=23..25` while preserving the `FLIPDIST_DIRECTION_PROBE_THRESHOLD_MS` experiment override. The current n>=29 pass adds dynamic partition-cache defaults, conflict-first empty-S ordering, direct-index target child-range lookup, and targeted direction rules for compact reverse-direction cases. This recovered one hard pair each at `n=29` and `n=30`, improved `n=28` median runtime, and preserved the `n=23..26` coverage guardrails without changing solver semantics.
+The exact solved and timeout seed lists are retained in:
 
-At the current 2.5s timeout, remaining hard seeds are:
+- `benchmarks/random_n26_35_seeds0_100_t2_m3_summary.csv`
+- `benchmarks/random_n26_35_seeds0_100_t2_m3_instances.csv`
 
-- `n=26`: 40/42 directed solves; timeout seed `14`.
-- `n=27`: 36/42 directed solves; timeout seeds `5, 9, 14`.
-- `n=28`: 26/42 directed solves; timeout seeds `1, 5, 7, 9, 11, 14, 17, 20`.
-- `n=29`: 24/42 directed solves; timeout seeds `4, 7, 10, 11, 13, 14, 16, 17, 20`.
-- `n=30`: 24/42 directed solves; timeout seeds `1, 2, 9, 11, 13, 14, 16, 17, 20`.
+## Practical Limit
 
-## n=26..27 Boundary Optimization
+Under the current 2s cap, the practical limit starts at `n=26..27`.
 
-The current n=26..27 pass added a narrow direction-order lock for cases where a deeper target with an extreme low root would otherwise be overridden by a later reverse-direction shape rule. This is Li-Xia-preserving: it only changes which directed solve is attempted first, and leaves distance semantics, `max_k`, and search completeness unchanged.
+The solver can still solve many larger instances quickly, but the success rate drops below the target range:
+
+- `n=26`: still useful, but no longer reaches 95% on the wider `0..100` seed set.
+- `n=27`: below 80% on the wider seed set.
+- `n=28+`: not reliable under the current 2s cap.
+
+This is a practical time limit, not a proof that exact solving is impossible at those sizes.
+
+## Why The Solver Times Out
+
+The main bottleneck is `TreeDistS` when `S` is empty.
+
+In plain terms:
+
+1. The solver reaches a state where many rotations are possible.
+2. Many rotations lead to similar-looking subproblems.
+3. The solver repeatedly splits those subproblems into partition sides.
+4. Hard cases create hundreds of thousands of repeated recursive checks before the 2s cap expires.
+
+The current implementation already uses safe caching, child-state deduplication, lower-bound reuse, and direction ordering. These reduce some repeated work, but they do not remove the core growth in the empty-`S` branch.
+
+## Recent Optimization Evidence
+
+The n=26..27 boundary pass improved the smaller seeds `0..20` slice by changing safe direction ordering:
 
 | Scenario | Timeout | n26 | n27 | Combined |
 |---|---:|---:|---:|---:|
-| Before direction lock | 2s | 38/42 = 90.48% | 34/42 = 80.95% | 72/84 = 85.71% |
-| After direction lock | 2s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| After direction lock | 2.5s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| Side-budget cache tightening | 2s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| Side-budget cache tightening | 2.5s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| Empty-S pair-bound propagation | 2s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| Empty-S pair-bound propagation | 2.5s | 40/42 = 95.24% | 36/42 = 85.71% | 76/84 = 90.48% |
-| Forced partition cache + conflict-first empty-S order | 2s | 40/42 = 95.24% | 34/42 = 80.95% | 74/84 = 88.10% |
-| Forced partition split cache | 2s | 40/42 = 95.24% | 34/42 = 80.95% | 74/84 = 88.10% |
+| Before direction lock | 2s | 38/42 = 90.5% | 34/42 = 81.0% | 72/84 = 85.7% |
+| After direction lock | 2s | 40/42 = 95.2% | 36/42 = 85.7% | 76/84 = 90.5% |
+| Empty-S pair-bound propagation | 2s | 40/42 = 95.2% | 36/42 = 85.7% | 76/84 = 90.5% |
 
-The side-budget cache tightening records smaller known feasible side budgets when pair incumbents or existing success bounds prove a lower feasible value than the current queried budget. Empty-S pair-bound propagation additionally records exact empty-S `TreeDistS` outcomes into the pair-distance bounds cache so repeated partition side checks can reuse them through the cheaper pair key. Both changes are exact-safe and preserve coverage, but representative hard-seed profiles did not show a material enough reduction in `S.empty()` call volume, partition call volume, or partition budget-loop time to recover a persistent n=27 timeout seed. The recovered 2s cases remain timing-margin direction-order cases, not new search-space pruning. Persistent timeout seeds remain:
+That improvement came from solving timing-margin cases earlier. It did not fix the persistent hard seeds.
+
+Persistent hard seeds in the smaller slice:
 
 - `n=26`: seed `14`.
-- `n=27`: seeds `5, 9, 14`.
+- `n=27`: seeds `5`, `9`, and `14`.
 
-Fresh abort profiles on those persistent seeds show no `TreeDistI` work and the same `TreeDistS/S.empty()` partition wall: hundreds of thousands of `S.empty()` calls, hundreds of thousands of partition calls, and partition budget-loop accumulated time in the multi-second range inside each abort. For example, before side-cache tightening, `n=26 seed=14` reached `849,169` `TreeDistS` calls, `397,484` `S.empty()` calls, `291,997` partition calls, and `6,650.647 ms` accumulated partition budget-loop time in the first profiled direction; after tightening, the comparable first direction remained in the same range at `855,923` `TreeDistS` calls, `400,220` `S.empty()` calls, `294,490` partition calls, and `6,637.117 ms` accumulated budget-loop time. In the current n=27 pair-bound pass, seed `5` still aborts at `373,014` `TreeDistS` calls, `140,159` `S.empty()` calls, `170,224` partition calls, and `1,765.462 ms` partition budget-loop time in `a->b`; seed `14` still reaches `440,385` `TreeDistS` calls and `211,360` `S.empty()` calls in `a->b`.
+Profile samples still show the same bottleneck. For example, an n=27 hard run can reach more than `370,000` `TreeDistS` calls, more than `140,000` empty-`S` calls, and more than `170,000` partition calls before aborting.
 
-## 90% Feasibility Check
+## What Would Be Needed Next
 
-The current goal tested whether `n=27..30`, seeds `0..20`, can reach at least 90% exact solve coverage with Li-Xia-preserving optimization. Under the strict `2s`, `max_k=3n` benchmark, 90% requires at least `38/42` directed solves per n, or `152/168` directed solves across the combined slice.
+Further large gains likely require a structural change, not only more local caching.
 
-Current strict-2s default coverage is `110/168 = 65.48%` across `n=27..30`. This matches the 2.5s coverage, so the misses are not concentrated in the 2.0-2.5s band. A higher-timeout `10s` probe reaches `128/168 = 76.19%`, still 24 directed solves short of 90%. Existing Li-Xia-preserving toggles did not recover additional strict-2s coverage:
+Promising directions include:
 
-| Scenario | Timeout | n27 | n28 | n29 | n30 | Combined |
-|---|---:|---:|---:|---:|---:|---:|
-| Current default | 2s | 36/42 | 26/42 | 24/42 | 24/42 | 110/168 = 65.48% |
-| Current default | 2.5s | 36/42 | 26/42 | 24/42 | 24/42 | 110/168 = 65.48% |
-| Current default | 10s | 36/42 | 32/42 | 30/42 | 30/42 | 128/168 = 76.19% |
-| Forced partition cache + conflict-first empty-S order | 2s | 34/42 | 26/42 | 24/42 | 24/42 | 108/168 = 64.29% |
-| Forced partition split cache | 2s | 34/42 | 26/42 | 22/42 | 24/42 | 106/168 = 63.10% |
-| Forced partition cache + conflict-first empty-S order | 2.5s | 36/42 | 26/42 | 24/42 | 24/42 | 110/168 = 65.48% |
-| Forced partition split cache | 2.5s | 36/42 | 26/42 | 24/42 | 24/42 | 110/168 = 65.48% |
-
-This marks the current Li-Xia-structured solver as reaching its practical hard limit for `n=27..30` under the established 2s benchmark constraints. The gap is too large to plausibly close with local ordering/cache changes alone: `n=27` is close but has persistent timeouts even at 10s, while `n=28..30` remain far below 90% at 2s, 2.5s, and 10s.
-
-## Hard-Case Profiles
-
-Bounded 5s profiles of persistent timeout seeds `n=28 seed=7` and `n=30 seed=1` show the same failure mode:
-
-- `TreeDistI` calls: `0`.
-- Search time is dominated by `TreeDistS` with empty `S`.
-- Each 5s abort sees hundreds of thousands of `S.empty()` calls and partition calls.
-- Partition budget-loop accumulated time remains high because it is nested under many recursive calls, even when iteration counts are reduced by side-budget caches.
-- On `n=24 seed=24`, the direct-index target child-range lookup reduced a representative run from roughly `2.58s` to roughly `2.40s` by cutting hot conflict/free-edge lookup overhead.
-- Partition side-order probes (`side1`, `side2`, lower-bound, conflict, size, pair-count modes) did not solve the representative persistent hard seeds within 10s.
-
-Representative 5s abort counters:
-
-| Case | Direction | `TreeDistS` calls | `S.empty()` calls | Partition calls | Budget-loop accumulated time | Duplicate child states |
-|---|---|---:|---:|---:|---:|---:|
-| `n=28 seed=7` | `a->b` | 877,144 | 350,183 | 356,766 | 10,508.634 ms | 227,898 |
-| `n=28 seed=7` | `b->a` | 726,591 | 276,175 | 307,205 | 7,328.334 ms | 56,608 |
-| `n=30 seed=1` | `a->b` | 858,874 | 264,672 | 408,979 | 11,572.052 ms | 153,989 |
-| `n=30 seed=1` | `b->a` | 737,175 | 316,399 | 268,491 | 10,387.712 ms | 176,668 |
-
-Current evidence points to state-space explosion in `TreeDistS/S.empty()` plus repeated partition-driven branching as the practical wall. Further large gains likely require stronger admissible pruning, stronger state equivalence, or a deeper Li-Xia-preserving decomposition of empty-S branch families.
-
-Concretely, the Li-Xia-preserving implementation is limited by the empty-S branch structure: it still enumerates too many rotation children, repeatedly re-enters partition-driven feasibility checks, and cannot derive enough global impossibility information from the current local lower bounds, side-budget caches, or split signatures. Reaching 90%+ coverage on this slice likely requires changing the preserved structure in one of these ways:
-
-- replace local empty-S rotation enumeration with a stronger global search state or canonical state-space traversal;
-- add a materially stronger admissible lower bound that reasons across both partition sides before recursive branching;
-- change partition handling from repeated side-budget feasibility recursion into a shared decomposition DAG or equivalent global dynamic program;
-- introduce stronger state equivalence/dominance than the current pair keys, child signatures, and incumbent bounds can express.
+- stronger lower bounds that reject impossible branches earlier;
+- a shared dynamic program for repeated partition-side checks;
+- stronger state equivalence so equivalent rotation paths are not explored repeatedly;
+- a different empty-`S` search strategy while preserving exactness.
 
 ## AStar Comparison
 
-The retained historical shared-convex summary still shows AStarFlipDistance faster on that prior dataset/build. A fresh local comparison was also run using an ignored no-Gurobi build of `A_star_for_flipdistance` on identical shared-convex inputs, case timeout `10s`.
+AStarFlipDistance is optional and benchmarked separately on shared-convex inputs.
 
-| n | FlipDist median | A* simple median | A* combined median |
-|---|---:|---:|---:|
-| 22 | 9.764 ms | 168.500 ms | 163.000 ms |
-| 23 | 11.517 ms | 125.500 ms | 103.000 ms |
-| 24 | 23.542 ms | 185.000 ms | 128.000 ms |
-| 25 | 17.944 ms | 40.500 ms | 38.500 ms |
-| 26 | 27.463 ms | 327.500 ms | 86.000 ms |
-| 27 | 85.647 ms | 350.500 ms | 343.000 ms |
-| 28 | 323.901 ms | 475.500 ms | 260.500 ms |
-| 29 | 72.993 ms | 759.000 ms | 779.500 ms |
-| 30 | 16.869 ms | 149.000 ms | 160.000 ms |
+The current local no-Gurobi comparison on paired solved rows shows FlipDist faster than A* on median runtime for `n=22..30` in that shared-convex sample. Raw medians can be misleading when one solver times out on different rows, so paired-row medians are the preferred comparison.
 
-The raw solved-case median is affected by different timeout subsets; for example, at `n=28` the A* combined median is lower because it solved fewer rows. On paired rows solved by both solvers, FlipDist has faster median runtime than both A* modes for every `n=22..30` in this local sample. The paired counts, status counts, and win counts are retained in `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`.
+The retained comparison summary is:
 
-A current focused `n=28`, seeds `0..10` shared-convex refresh had FlipDist raw solved median `323.901 ms`, A* simple `475.500 ms`, and A* combined `260.500 ms`; A* timed out on several rows. On comparable paired solved rows, FlipDist median remained faster than both modes: `53.855 ms` vs A* simple `475.500 ms`, and `34.169 ms` vs A* combined `260.500 ms`.
+- `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`
 
 ## Validation
 
-Latest validation for the tracked solver state:
+Latest validation for this solver state:
 
-- `cmake --build build -j`
-- `./build/bf_bst`
-- `./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30 --bfs-cap 1`
-- Java parity: random `n=12..13`, seeds `0..5`
-- Full random baseline: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`
-
-Curated CSV summaries are in `benchmarks/random_hard_limit_n23_35_summary.csv` and `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`.
+- C++ build completed.
+- `./build/bf_bst` passed.
+- CLI smoke test passed.
+- Java parity passed for random `n=12..13`, seeds `0..5`.
+- Full random sweep completed for `n=26..35`, seeds `0..100`, timeout `2s`, `max_k=3n`.

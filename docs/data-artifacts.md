@@ -8,6 +8,10 @@ The repository tracks source, maintained tools, oracle source, and a small set o
 
 `benchmarks/random_hard_limit_n23_35_summary.csv` contains the compact hard-limit summary across the baseline and larger random samples.
 
+`benchmarks/random_n26_35_seeds0_100_t2_m3_summary.csv` contains the latest full hard-limit sweep for `n=26..35`, seeds `0..100`, timeout `2s`, `max_k=3n`.
+
+`benchmarks/random_n26_35_seeds0_100_t2_m3_instances.csv` contains the pair-level status for that same sweep. Use it to see exactly which seeds solved and which seeds timed out.
+
 `benchmarks/random_n26_27_boundary_summary.csv` contains the focused n=26..27 hard-boundary optimization summary, including strict 2s and 2.5s coverage before and after the direction-order lock.
 
 `benchmarks/random_n27_30_90_feasibility_summary.csv` contains the focused n=27..30 90% feasibility checks, including the strict 2s default, the current 2.5s reference, a 10s timeout probe, and Li-Xia-preserving cache/order experiments.

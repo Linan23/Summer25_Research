@@ -28,25 +28,44 @@ python3 tools/sweep_flipdist_limits.py \
 
 The retained headline summary is copied to `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv`.
 
-Hard-limit sweeps:
+Full hard-limit sweep:
+
+```bash
+python3 tools/sweep_flipdist_limits.py \
+  --case random --n-min 26 --n-max 35 \
+  --seed-min 0 --seed-max 100 \
+  --timeout-sec 2 --max-k-mult 3 \
+  --cpp-binary ./build/flipdist \
+  --output results/random_n26_35_seeds0_100_t2_m3_raw.csv
+```
+
+The retained summaries are:
+
+- `benchmarks/random_hard_limit_n23_35_summary.csv`
+- `benchmarks/random_n26_35_seeds0_100_t2_m3_summary.csv`
+- `benchmarks/random_n26_35_seeds0_100_t2_m3_instances.csv`
+
+Use the instance file when you need to inspect which seeds solved or timed out.
+
+Smaller hard-limit sanity sweeps:
 
 ```bash
 python3 tools/sweep_flipdist_limits.py \
   --case random --n-min 26 --n-max 30 \
   --seed-min 0 --seed-max 20 \
-  --timeout-sec 2.5 --max-k-mult 3 \
+  --timeout-sec 2 --max-k-mult 3 \
   --cpp-binary ./build/flipdist \
-  --output results/random_n26_30_s0_20_t2p5_m3.csv
+  --output results/random_n26_30_s0_20_t2_m3.csv
 
 python3 tools/sweep_flipdist_limits.py \
   --case random --n-min 31 --n-max 35 \
   --seed-min 0 --seed-max 10 \
-  --timeout-sec 2.5 --max-k-mult 3 \
+  --timeout-sec 2 --max-k-mult 3 \
   --cpp-binary ./build/flipdist \
-  --output results/random_n31_35_s0_10_t2p5_m3.csv
+  --output results/random_n31_35_s0_10_t2_m3.csv
 ```
 
-The curated hard-limit summary is retained in `benchmarks/random_hard_limit_n23_35_summary.csv`; interpretation is in `docs/hard-limit-analysis.md`.
+Interpretation is in `docs/hard-limit-analysis.md`.
 
 Focused `n=26..27` boundary checks:
 
@@ -202,6 +221,6 @@ When timeout subsets differ, prefer paired-row medians over raw solved-case medi
 
 ## Metric Notes
 
-Random sweep rows are directed. A single generated instance produces `a->b` and `b->a` rows. First-direction coverage counts only `a->b`; directed coverage counts both rows.
+Random sweep rows are directed. A single generated seed normally produces `a->b` and `b->a` rows. Directed coverage counts both rows. Pair coverage counts the seed only when both directions return `ok`.
 
-`status=ok` means the exact solver found a distance within the configured `max_k`. `status=timeout` means the Python harness stopped the process for that directed case. Timing near a fixed threshold such as 2s can vary slightly between runs and machines.
+`status=ok` means the exact solver found a distance within the configured `max_k`. `status=timeout` means the Python harness stopped the run at the configured wall-clock cap. In the full hard-limit sweep, the cap is applied to the `flipdist` process for one seed; if the process does not return both JSON rows before the cap, the harness records both directions as timeout. Timing near a fixed threshold such as 2s can vary slightly between runs and machines.
