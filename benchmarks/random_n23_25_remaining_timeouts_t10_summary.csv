@@ -1,0 +1,4 @@
+scenario,n,strict_2p5s_timeout_seed_count,recovered_by_10s_count,still_timeout_10s_count,recovered_by_10s_seeds,still_timeout_10s_seeds,recovered_times_ms,notes
+remaining_2p5s_timeouts_retested_at_10s,23,2,0,2,,14;24,,Retests only n=23..25 seeds that timed out in the current 2.5s guardrail; max_k=3n.
+remaining_2p5s_timeouts_retested_at_10s,24,8,2,6,51;54,10;14;15;33;73;97,51:3616.604;54:8380.139,Retests only n=23..25 seeds that timed out in the current 2.5s guardrail; max_k=3n.
+remaining_2p5s_timeouts_retested_at_10s,25,5,1,4,18,14;60;73;97,18:4540.166,Retests only n=23..25 seeds that timed out in the current 2.5s guardrail; max_k=3n.

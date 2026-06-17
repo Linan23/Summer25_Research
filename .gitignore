@@ -1,14 +1,16 @@
 # Build artifacts
 build/
-build-asan/
 build-*/
 cmake-build/
+cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
+compile_commands.json
 
 # Binaries
 bf_bst
+flipdist
 flipdist_fast
 flipdist_asan
 test
@@ -17,29 +19,48 @@ test_asan
 
 # Debug symbols
 *.dSYM/
+*.prof
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+*.gcov
+callgrind.out.*
+perf.data*
 
 # Editor / OS
 .DS_Store
 .vscode/
+*.swp
+*.swo
 
 # Python
 __pycache__/
 .venv/
+venv/
+env/
 .pytest_cache/
+.mypy_cache/
 
 # Generated results
-results/
+results/*
+!results/README.md
 comparison_*.csv
+*.log
 
 # Java oracle build output
 oracle/java/out/
 *.class
 
 # Optional external dependencies
-third_party/
+third_party/*
+!third_party/README.md
 
 # Scratch files
 A.txt
 B.txt
 a
 b
+tmp/
+temp/
+*.tmp

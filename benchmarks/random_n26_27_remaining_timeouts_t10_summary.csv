@@ -1,0 +1,3 @@
+scenario,n,strict_2s_timeout_seed_count,recovered_by_10s_count,still_timeout_10s_count,recovered_by_10s_seeds,still_timeout_10s_seeds,recovered_times_ms,notes
+remaining_2s_timeouts_retested_at_10s,26,14,5,9,24;67;69;74;96,14;30;32;59;62;72;75;94;97,24:3844.583;67:8251.362;69:3862.342;74:8081.214;96:5024.173,Retests only seeds that timed out after the latest n=26..27 strict-2s direction-order refresh; max_k=3n.
+remaining_2s_timeouts_retested_at_10s,27,16,8,8,40;48;60;67;69;83;84;97,5;9;14;47;54;59;62;75,40:2177.851;48:5165.671;60:4049.435;67:7104.063;69:8083.761;83:2249.781;84:9608.796;97:7018.386,Retests only seeds that timed out after the latest n=26..27 strict-2s direction-order refresh; max_k=3n.

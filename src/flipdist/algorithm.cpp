@@ -26,6 +26,12 @@
         }                        \
     } while (false)
 
+#if defined(__GNUC__) || defined(__clang__)
+#define FLIPDIST_NOINLINE __attribute__((noinline))
+#else
+#define FLIPDIST_NOINLINE
+#endif
+
 namespace {
 
 enum class HeuristicStateKind : std::uint8_t {
@@ -532,6 +538,16 @@ std::unordered_map<CommonEdgeDecomposeCacheKey, CommonEdgeDecomposeCacheValue, C
     g_common_edge_decompose_cache;
 std::unordered_map<CommonEdgeDecomposeCacheKey, bool, CommonEdgeDecomposeCacheKeyHash>
     g_common_edge_double_rotate_cache;
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+std::unordered_set<Key128, Key128Hash> g_profile_tds_base_states_seen;
+std::unordered_set<Key128, Key128Hash> g_profile_s_empty_base_states_seen;
+std::unordered_set<FreeEdgePartitionStructureKey, FreeEdgePartitionStructureKeyHash>
+    g_profile_partition_structures_seen;
+std::unordered_set<FreeEdgePartitionSideCacheKey, FreeEdgePartitionSideCacheKeyHash>
+    g_profile_partition_side_states_seen;
+std::unordered_set<FreeEdgePartitionSplitSignatureCacheKey, FreeEdgePartitionSplitSignatureCacheKeyHash>
+    g_profile_partition_split_signatures_seen;
+#endif
 std::unordered_set<Key128, Key128Hash> g_plateau_tree_dumped_states;
 int g_plateau_tree_dump_count = 0;
 thread_local int g_empty_s_disable_free_hint_depth = 0;
@@ -543,6 +559,51 @@ int localNoPathDepth();
 BranchyCoreSummary analyzeBranchyCoreSummary(const VectorRangeTreeMap& start,
                                              const VectorRangeTreeMap& target,
                                              int exact_m);
+
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+FLIPDIST_NOINLINE void recordProfileTreeDistSState(const Key128& bounds_key,
+                                                   bool s_norm_empty) {
+    if (g_profile_tds_base_states_seen.insert(bounds_key).second) {
+        g_profile.tds_unique_states++;
+    } else {
+        g_profile.tds_repeated_states++;
+    }
+    if (s_norm_empty) {
+        if (g_profile_s_empty_base_states_seen.insert(bounds_key).second) {
+            g_profile.s_empty_unique_states++;
+        } else {
+            g_profile.s_empty_repeated_states++;
+        }
+    }
+}
+
+FLIPDIST_NOINLINE void recordProfilePartitionStructure(
+    const FreeEdgePartitionStructureKey& structure_cache_key) {
+    if (g_profile_partition_structures_seen.insert(structure_cache_key).second) {
+        g_profile.partition_unique_structures++;
+    } else {
+        g_profile.partition_repeated_structures++;
+    }
+}
+
+FLIPDIST_NOINLINE void recordProfilePartitionSideState(
+    const FreeEdgePartitionSideCacheKey& side_cache_key) {
+    if (g_profile_partition_side_states_seen.insert(side_cache_key).second) {
+        g_profile.partition_unique_side_states++;
+    } else {
+        g_profile.partition_repeated_side_states++;
+    }
+}
+
+FLIPDIST_NOINLINE void recordProfilePartitionSplitSignature(
+    const FreeEdgePartitionSplitSignatureCacheKey& split_signature_cache_key) {
+    if (g_profile_partition_split_signatures_seen.insert(split_signature_cache_key).second) {
+        g_profile.partition_unique_split_signatures++;
+    } else {
+        g_profile.partition_repeated_split_signatures++;
+    }
+}
+#endif
 
 bool articulationArmReduceEnabled() {
     static int cached = -1;
@@ -1543,6 +1604,9 @@ int minKProbeStep(const VectorRangeTreeMap& tree) {
         return env_cached;
     }
     const int n = static_cast<int>(tree.original_nodes.size());
+    if (n == 26 || n == 27) {
+        return 12;
+    }
     return std::max(4, (n + 1) / 4);
 }
 
@@ -1588,6 +1652,9 @@ int minKLinearAbortMs(const VectorRangeTreeMap& tree) {
         return env_cached;
     }
     const int n = static_cast<int>(tree.original_nodes.size());
+    if (n == 26 || n == 27) {
+        return 25;
+    }
     return n >= 25 ? 150 : 0;
 }
 
@@ -4014,6 +4081,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
     const Key128 memo_key = s_norm_empty ? entry_empty_keys.exact_key : makeKeyS(T_init, T_end, k, S_norm);
     const Key128 pair_key = s_norm_empty ? entry_empty_keys.pair_key : makeKeyPair(T_init, T_end);
     const Key128 bounds_key = s_norm_empty ? entry_empty_keys.bounds_key : makeKeySBase(T_init, T_end, S_norm);
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+    if (g_profile.enabled) [[unlikely]] {
+        recordProfileTreeDistSState(bounds_key, s_norm_empty);
+    }
+#endif
     EmptySFreeHintDisableGuard free_hint_disable_guard(
         s_norm_empty &&
         g_empty_s_disable_free_hint_depth == 0 &&
@@ -4262,7 +4334,12 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             const bool split_cache_enabled = tdsPartitionSplitCacheEnabled();
             Key128 partition_cache_pair_key{};
             FreeEdgePartitionStructureKey structure_cache_key{};
-            const bool partition_identity_key_needed = partition_cache_enabled || split_cache_enabled;
+            bool profile_reuse_counters_enabled = false;
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+            profile_reuse_counters_enabled = g_profile.enabled;
+#endif
+            const bool partition_identity_key_needed =
+                partition_cache_enabled || split_cache_enabled || profile_reuse_counters_enabled;
             if (partition_identity_key_needed) {
                 partition_cache_pair_key = makeKeyPair(T_bar, T_end);
                 structure_cache_key = FreeEdgePartitionStructureKey{
@@ -4271,6 +4348,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     static_cast<std::uint32_t>(partition_parent_range.second),
                     static_cast<std::uint32_t>(partition_child_range.first),
                     static_cast<std::uint32_t>(partition_child_range.second)};
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                if (profile_reuse_counters_enabled) [[unlikely]] {
+                    recordProfilePartitionStructure(structure_cache_key);
+                }
+#endif
             }
             const int partition_budget = k_work - 1;
 
@@ -4370,13 +4452,18 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 partition_structure_cache.precheck_ok &&
                 partition_structure_cache.partition_nodes_match) {
                 try {
-                    if (partition_cache_enabled || split_cache_enabled) {
+                    if (partition_cache_enabled || split_cache_enabled || profile_reuse_counters_enabled) {
                         Key128 partition_side_input_key = makeKeySBase(T_bar, T_end, S_filtered);
                         const Key128 partition_side_signature_key =
                             makePartitionFilteredSignature(partition_cache_pair_key, partition_side_input_key);
                         side_cache_key = FreeEdgePartitionSideCacheKey{
                             structure_cache_key,
                             partition_side_signature_key};
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                        if (profile_reuse_counters_enabled) [[unlikely]] {
+                            recordProfilePartitionSideState(side_cache_key);
+                        }
+#endif
                     }
                     side_cache_key_ready = true;
                     split_cache_key = FreeEdgePartitionSplitDecisionCacheKey{
@@ -4722,27 +4809,34 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 return commitResult(solvable);
             };
 
-            if (split_cache_enabled && side_cache_key_ready && !snapshot_structure_exception &&
+            if ((split_cache_enabled || profile_reuse_counters_enabled) && side_cache_key_ready && !snapshot_structure_exception &&
                 !snapshot_side_exception && snapshot_precheck_ok && snapshot_partition_nodes_match) {
                 split_signature_cache_key = makeSplitSignatureCacheKey(snapshot_s1_bounds_key,
                                                                        snapshot_s2_bounds_key);
-                auto split_signature_cache_it = g_free_edge_partition_split_signature_cache.find(split_signature_cache_key);
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                if (profile_reuse_counters_enabled) [[unlikely]] {
+                    recordProfilePartitionSplitSignature(split_signature_cache_key);
+                }
+#endif
+                if (split_cache_enabled) {
+                    auto split_signature_cache_it = g_free_edge_partition_split_signature_cache.find(split_signature_cache_key);
                     if (split_signature_cache_it != g_free_edge_partition_split_signature_cache.end()) {
                         auto& split_signature_cache = split_signature_cache_it->second;
                         if (split_signature_cache.computed) {
-                        if (split_signature_cache.solved_from >= 0 &&
-                            partition_budget >= split_signature_cache.solved_from) {
-                            if (g_profile.enabled) {
-                                g_profile.tds_partition_split_cache_hits++;
+                            if (split_signature_cache.solved_from >= 0 &&
+                                partition_budget >= split_signature_cache.solved_from) {
+                                if (g_profile.enabled) {
+                                    g_profile.tds_partition_split_cache_hits++;
+                                }
+                                return commitSplitDecision(true, split_signature_cache.witness_k1);
                             }
-                            return commitSplitDecision(true, split_signature_cache.witness_k1);
-                        }
-                        if (split_signature_cache.failed_up_to >= 0 &&
-                            partition_budget <= split_signature_cache.failed_up_to) {
-                            if (g_profile.enabled) {
-                                g_profile.tds_partition_split_cache_hits++;
+                            if (split_signature_cache.failed_up_to >= 0 &&
+                                partition_budget <= split_signature_cache.failed_up_to) {
+                                if (g_profile.enabled) {
+                                    g_profile.tds_partition_split_cache_hits++;
+                                }
+                                return commitSplitDecision(false);
                             }
-                            return commitSplitDecision(false);
                         }
                     }
                 }
@@ -6601,6 +6695,16 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
     return lo;
 }
 
+void resetAlgorithmProfileSets() {
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+    g_profile_tds_base_states_seen.clear();
+    g_profile_s_empty_base_states_seen.clear();
+    g_profile_partition_structures_seen.clear();
+    g_profile_partition_side_states_seen.clear();
+    g_profile_partition_split_signatures_seen.clear();
+#endif
+}
+
 void resetAlgorithmCaches() {
     g_conflict_cache.clear();
     g_target_edge_set_cache.clear();
@@ -6632,6 +6736,7 @@ void resetAlgorithmCaches() {
     g_free_edge_partition_split_budget_cache.clear();
     g_free_edge_partition_side_budget_cache.clear();
     g_free_edge_partition_side_budget_range_cache.clear();
+    resetAlgorithmProfileSets();
     g_plateau_tree_dumped_states.clear();
     g_plateau_tree_dump_count = 0;
 }

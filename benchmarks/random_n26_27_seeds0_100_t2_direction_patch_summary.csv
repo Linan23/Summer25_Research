@@ -1,0 +1,3 @@
+scenario,n,seed_min,seed_max,timeout_sec,max_k,directed_ok,directed_total,directed_ok_pct,pair_ok,pair_total,pair_ok_pct,median_solved_pair_max_ms,recovered_vs_full_sweep,timeout_seeds,notes
+boundary_direction_patch_2s,26,0,100,2,3n,174,202,86.14,87,101,86.14,31.950,25;92,14;24;30;32;59;62;67;69;72;74;75;94;96;97,boundary shape direction ordering; Li-Xia search unchanged
+boundary_direction_patch_2s,27,0,100,2,3n,170,202,84.16,85,101,84.16,54.105,11;32;44;63;96,5;9;14;40;47;48;54;59;60;62;67;69;75;83;84;97,boundary shape direction ordering; Li-Xia search unchanged
