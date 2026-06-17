@@ -116,7 +116,7 @@ def run_smoke_tests(skip_tests: bool, skip_java: bool) -> None:
         print("skip smoke tests")
         return
     run(["./build/bf_bst"])
-    run(["./build/flipdist", "--case", "random", "--n", "12", "--seed", "0", "--count", "1", "--max-k", "30"])
+    run(["./build/flipdist", "--case", "random", "--n", "12", "--seed", "0", "--count", "1", "--max-k", "30", "--bfs-cap", "1"])
     if not skip_java:
         run(
             [

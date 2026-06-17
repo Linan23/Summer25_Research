@@ -1,0 +1,4 @@
+scenario,n,seed_range,timeout_sec,max_k,ok,total,timeout,not_found,p95_ms,max_ms,notes
+profile_counter_validation,23,0..100,2.5,3n,198,202,4,0,1222.4,2500.0,"Fresh validation after adding optional reuse-counter instrumentation; matches retained n=23 guardrail."
+profile_counter_validation,24,0..100,2.5,3n,184,202,18,0,2500.0,2500.0,"Fresh validation after adding optional reuse-counter instrumentation; seed 24 flipped versus retained 186/202 run. Direct solver runs place the retained easy direction around 2.57s now, so it is a strict-2.5s timing-margin case."
+profile_counter_validation,25,0..100,2.5,3n,192,202,10,0,2007.5,2500.0,"Fresh validation after adding optional reuse-counter instrumentation; matches retained n=25 guardrail."

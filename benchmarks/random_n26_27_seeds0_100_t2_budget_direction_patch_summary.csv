@@ -1,0 +1,3 @@
+scenario,n,seed_min,seed_max,timeout_sec,max_k,directed_ok,directed_total,directed_ok_pct,pair_ok,pair_total,pair_ok_pct,median_solved_pair_max_ms,recovered_vs_direction_patch,timeout_seeds,notes
+budget_direction_patch_2s,26,0,100,2,3n,174,202,86.14,87,101,86.14,27.658,,14;24;30;32;59;62;67;69;72;74;75;94;96;97,n=26..27 exact budget-probe tuning plus shape direction ordering; Li-Xia search unchanged
+budget_direction_patch_2s,27,0,100,2,3n,176,202,87.13,88,101,87.13,52.486,40;47;83,5;9;14;48;54;59;60;62;67;69;75;84;97,n=26..27 exact budget-probe tuning plus shape direction ordering; Li-Xia search unchanged

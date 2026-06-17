@@ -1,12 +1,14 @@
 # FlipDist Research Solver
 
-FlipDist is an exact solver for flip distance on rooted binary trees. The same problem can also be viewed through triangulations, and this repository keeps a Java triangulation oracle for independent checks. The C++ solver preserves the Li-Xia search structure and is optimized around the current hard path in `TreeDistS`, especially repeated partition checks in empty-side subproblems.
+FlipDist is a research implementation of an exact solver for flip distance on rooted binary trees, equivalently rotation distance between binary trees or flip distance between triangulations of a convex polygon. The solver is built on the fixed-parameter algorithmic framework of Li and Xia, "An O(3.82^k) Time FPT Algorithm for Convex Flip Distance" (STACS 2023).
 
-The repository is organized as a developer-and-research handoff package: buildable C++ sources, a Java exact oracle, maintained benchmark tools, curated current results, and focused documentation.
+The repository is organized for research handoff and reproducibility. It contains buildable C++ solver sources, a Java triangulation oracle for independent checks, benchmark and parity tools, curated current results, and documentation for future extensions.
+
+See `docs/references.md` for the paper citation and problem background. See `docs/architecture.md` for how the paper-level structure maps onto this C++/Python/Java codebase.
 
 ## Current Solver Status
 
-Latest requested random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
+Current retained random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
 
 | Metric | Result |
 | --- | ---: |
@@ -21,19 +23,19 @@ Single-run timing has small variance near the 2s boundary, so the under-2s count
 
 ## AStarFlipDistance Comparison
 
-AStarFlipDistance is optional and is not vendored in this repository. Older retained shared-convex summaries show A* faster on one prior dataset/build. A newer local no-Gurobi AStar comparison on identical shared-convex inputs (`n=22..30`) shows FlipDist faster on paired solved-case median runtime for each n in that sample. Use `--astar-binary` with the benchmark tools to compare against a local external AStar build.
+AStarFlipDistance is optional and is not vendored in this repository. It is used only as an external comparison point on shared-convex inputs. Older retained summaries show A* faster on one prior dataset/build; the current retained local no-Gurobi comparison on identical shared-convex inputs (`n=22..30`) shows FlipDist faster on paired solved-case median runtime for each n in that sample. Use `--astar-binary` with the benchmark tools to compare against a local external AStar build.
 
 ## Hard Limit Snapshot
 
-The current practical limit evidence is summarized in `docs/hard-limit-analysis.md`. On the wider hard-limit sweep, `n=26..35`, seeds `0..100`, timeout `2s`, `max_k=3n`, coverage drops from `84.2%` at `n=26` to `36.6%` at `n=35`.
+The current practical limit evidence is summarized in `docs/hard-limit-analysis.md`. The n=23..25 baseline remains below the requested 99% per-size target: `n=23: 198/202`, `n=24: 186/202`, `n=25: 192/202`. Exact-safe probes over the current n=23..25 timeout seeds recovered `0/15` under the 2.5s cap, and only `3/15` solved by 10s. After the latest exact budget-probe and direction-order pass, the retained `n=26..27`, seeds `0..100`, timeout `2s`, `max_k=3n` result stands at `n=26: 174/202 = 86.1%` and `n=27: 176/202 = 87.1%`. On the wider retained `n=26..35` sweep, coverage drops to `36.6%` by `n=35`.
 
 | n range | Current takeaway |
 | --- | --- |
-| `n=23..25` | Stable baseline range; combined directed coverage is `95.0%` at `2.5s`. |
-| `n=26..27` | Practical boundary; many instances solve quickly, but full `0..100` coverage is below 90% under `2s`. |
+| `n=23..25` | Stable baseline range; combined directed coverage is `95.0%` at `2.5s`, but the 99% per-size target was not reached. |
+| `n=26..27` | Practical boundary; latest full `0..100` coverage is improved but still below 90% under `2s`. |
 | `n=28+` | Current Li-Xia-structured solver is not reliable under the strict `2s` cap. |
 
-The bottleneck is still `TreeDistS/S.empty()`: hard cases repeatedly explore rotation children and partition-side checks. Local caching and ordering improvements help timing-margin cases, but the full seed sweep shows that higher coverage likely requires a structural change.
+The bottleneck is still `TreeDistS/S.empty()`: hard cases repeatedly explore rotation children and partition-side checks. Local exact budget-probe tuning and ordering improvements help timing-margin cases, but the retained sweeps suggest that 90%-plus coverage through n=27 under `2s` would require a deeper structural improvement.
 
 ## Quick Start
 
@@ -50,17 +52,14 @@ Manual build and smoke test:
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/bf_bst
-./build/flipdist --case random --n 12 --seed 0 --count 1 --max-k 30
+tests/smoke.sh
+ctest --test-dir build --output-on-failure
 ```
 
 Small parity check against the Java oracle:
 
 ```bash
-python3 tools/run_flipdist_java_parity.py \
-  --case random --n 12 --seed 0 --count 1 \
-  --cpp-binary ./build/flipdist --max-k 36 \
-  --java-out oracle/java/out --java-lib oracle/java/lib/acm.jar
+tests/java_parity.sh
 ```
 
 ## Directory Map
@@ -70,18 +69,24 @@ python3 tools/run_flipdist_java_parity.py \
 | `src/flipdist/` | C++ solver, brute-force validator, CLI, memoization, and helper code. |
 | `tools/` | Maintained benchmark, parity, plotting, and comparison scripts. |
 | `tools/research_archive/` | Historical one-off analysis tools retained for reference only. |
+| `tests/` | Smoke, parity, benchmark-slice, and script-help wrappers. |
 | `oracle/java/` | Java triangulation oracle source and required `acm.jar`. |
 | `benchmarks/` | Curated current benchmark summaries used in documentation. |
-| `docs/` | Architecture, benchmark, development, and artifact policy documentation. |
+| `results/` | Ignored generated sweeps, plots, profiles, and parity outputs. |
+| `third_party/` | Ignored optional local checkouts such as AStarFlipDistance. |
+| `docs/` | Architecture, benchmark, development, artifact, and research notes. |
 | `scripts/setup_dev.py` | All-in-one developer setup script. |
 
 ## Documentation
 
 - `docs/architecture.md`: solver components and Li-Xia flow.
+- `docs/references.md`: primary paper citation and problem background.
 - `docs/benchmarks.md`: maintained benchmark and parity commands.
 - `docs/hard-limit-analysis.md`: current hard-limit, hard-case profile, and AStar comparison evidence.
 - `docs/development.md`: build/test workflow and contribution expectations.
 - `docs/data-artifacts.md`: retained artifacts, ignored outputs, and regeneration policy.
+- `docs/repository-inventory.md`: file classes and tracked/ignored policy.
+- `docs/research-notes.md`: short handoff notes on solver contract and current bottleneck.
 
 ## Requirements
 

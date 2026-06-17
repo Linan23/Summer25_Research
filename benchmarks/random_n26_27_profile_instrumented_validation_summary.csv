@@ -1,0 +1,3 @@
+scenario,n,seed_range,timeout_sec,max_k,ok,total,timeout,not_found,p95_ms,max_ms,notes
+profile_counter_validation,26,0..100,2,3n,174,202,28,0,2000.0,2000.0,"Fresh validation after adding optional reuse-counter instrumentation; matches retained n=26 strict-2s boundary result."
+profile_counter_validation,27,0..100,2,3n,174,202,28,0,2000.0,2000.0,"Fresh validation after adding optional reuse-counter instrumentation; two directed rows from seed 40 flipped versus the retained 176/202 run. Direct solver runs place seed 40 a->b around 2.08s, so it is a strict-2s timing-margin case."

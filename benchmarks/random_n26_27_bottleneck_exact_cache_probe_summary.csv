@@ -1,0 +1,13 @@
+scenario,n,seed_range,timeout_sec,directed_ok,directed_total,coverage_pct,median_ok_ms,max_ok_ms,outcome,notes
+default_small_slice,26,0..20,2.0,40,42,95.24,8.024,1702.399,baseline,Current restored default on the small boundary slice.
+default_small_slice,27,0..20,2.0,36,42,85.71,7.992,1806.996,baseline,Current restored default on the small boundary slice.
+partition_cache_forced,26,0..20,2.0,40,42,95.24,7.475,1871.886,rejected,No coverage gain and slightly worse tail on some solved rows.
+partition_cache_forced,27,0..20,2.0,36,42,85.71,7.833,1916.862,rejected,No coverage gain and slightly worse tail on some solved rows.
+split_cache_forced,26,0..20,2.0,38,42,90.48,7.541,1472.098,rejected,Regressed two n=26 directed rows.
+split_cache_forced,27,0..20,2.0,36,42,85.71,7.518,1966.874,rejected,No coverage gain.
+partition_and_split_cache_forced,26,0..20,2.0,38,42,90.48,7.486,1515.915,rejected,Regressed two n=26 directed rows.
+partition_and_split_cache_forced,27,0..20,2.0,34,42,80.95,7.792,996.259,rejected,Regressed two n=27 directed rows.
+incumbent_prune_forced,26,0..20,2.0,40,42,95.24,7.882,1728.290,rejected_as_default,Small median improvement but no coverage gain.
+incumbent_prune_forced,27,0..20,2.0,36,42,85.71,7.337,1820.955,rejected_as_default,Small median improvement but no coverage gain.
+incumbent_prune_default_attempt,26,0..100,2.0,174,202,86.14,7.282,1728.938,reverted,Full boundary run matched n=26 baseline.
+incumbent_prune_default_attempt,27,0..100,2.0,174,202,86.14,7.570,1926.632,reverted,Regressed n=27 from 176/202 to 174/202, so the default change was removed.

@@ -10,6 +10,10 @@ endif()
 include(CheckIPOSupported)
 check_ipo_supported(RESULT FLIPDIST_IPO_SUPPORTED OUTPUT FLIPDIST_IPO_ERROR)
 
+option(FLIPDIST_REUSE_PROFILE_COUNTERS
+  "Enable profile-only unique/repeated reuse counters in recursive hot paths"
+  OFF)
+
 set(FLIPDIST_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/flipdist)
 
 # bf_bst: driver + helpers all in bf_bst.cpp
@@ -29,6 +33,9 @@ add_executable(flipdist
 )
 # Skip the bf_bst.cpp main() when building flipdist
 target_compile_definitions(flipdist PRIVATE FLIPDIST_BINARY)
+if(FLIPDIST_REUSE_PROFILE_COUNTERS)
+  target_compile_definitions(flipdist PRIVATE FLIPDIST_REUSE_PROFILE_COUNTERS=1)
+endif()
 target_include_directories(flipdist PRIVATE
   ${FLIPDIST_SRC_DIR}
 )
@@ -40,3 +47,11 @@ endif()
 add_custom_target(compile
   DEPENDS bf_bst flipdist
 )
+
+include(CTest)
+if(BUILD_TESTING)
+  add_test(
+    NAME flipdist_smoke
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/smoke.sh --build-dir ${CMAKE_CURRENT_BINARY_DIR}
+  )
+endif()

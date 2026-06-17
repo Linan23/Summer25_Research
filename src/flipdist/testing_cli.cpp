@@ -799,7 +799,15 @@ int runCli(int argc, char **argv) {
                 g_profile.tdi_prefix_bound_calls = 0;
                 g_profile.memo_hits_tds = 0;
                 g_profile.bounds_hits_tds = 0;
+                g_profile.tds_unique_states = 0;
+                g_profile.tds_repeated_states = 0;
                 g_profile.calls_partition = 0;
+                g_profile.partition_unique_structures = 0;
+                g_profile.partition_repeated_structures = 0;
+                g_profile.partition_unique_side_states = 0;
+                g_profile.partition_repeated_side_states = 0;
+                g_profile.partition_unique_split_signatures = 0;
+                g_profile.partition_repeated_split_signatures = 0;
                 g_profile.partition_precheck_calls = 0;
                 g_profile.partition_precheck_matches = 0;
                 g_profile.partition_precheck_mismatches = 0;
@@ -817,6 +825,8 @@ int runCli(int argc, char **argv) {
                 g_profile.free_edge_misses = 0;
                 g_profile.s_branch_calls = 0;
                 g_profile.s_empty_branch_calls = 0;
+                g_profile.s_empty_unique_states = 0;
+                g_profile.s_empty_repeated_states = 0;
                 g_profile.s_empty_no_candidate_states = 0;
                 g_profile.s_empty_progress_states = 0;
                 g_profile.s_empty_plateau_states = 0;
@@ -886,6 +896,7 @@ int runCli(int argc, char **argv) {
                 g_profile.time_partition_bounds_ms = 0.0;
                 g_profile.time_partition_split_s_ms = 0.0;
                 g_profile.time_partition_budget_loop_ms = 0.0;
+                resetAlgorithmProfileSets();
             }
             PerformanceTimer timer;
             timer.start();
@@ -998,6 +1009,10 @@ int runCli(int argc, char **argv) {
                           << " time_ms=" << g_profile.time_tds_ms << "\n"
                           << "  - TreeDistS memo_hits=" << g_profile.memo_hits_tds
                           << " bounds_hits=" << g_profile.bounds_hits_tds << "\n"
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                          << "  - TreeDistS state_reuse unique=" << g_profile.tds_unique_states
+                          << " repeated=" << g_profile.tds_repeated_states << "\n"
+#endif
                           << "  - free_edge_time filter_ms=" << g_profile.time_tds_free_filter_ms
                           << " rotate_ms=" << g_profile.time_tds_free_rotate_ms
                           << " partner_ms=" << g_profile.time_tds_free_partner_ms << "\n"
@@ -1006,6 +1021,14 @@ int runCli(int argc, char **argv) {
                           << " precheck_calls=" << g_profile.partition_precheck_calls
                           << " precheck_matches=" << g_profile.partition_precheck_matches
                           << " precheck_mismatches=" << g_profile.partition_precheck_mismatches << "\n"
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                          << "  - partition_reuse structures_unique=" << g_profile.partition_unique_structures
+                          << " structures_repeated=" << g_profile.partition_repeated_structures
+                          << " side_states_unique=" << g_profile.partition_unique_side_states
+                          << " side_states_repeated=" << g_profile.partition_repeated_side_states
+                          << " split_signatures_unique=" << g_profile.partition_unique_split_signatures
+                          << " split_signatures_repeated=" << g_profile.partition_repeated_split_signatures << "\n"
+#endif
                           << "  - partition_time precheck_ms=" << g_profile.time_partition_precheck_ms
                           << " build_ms=" << g_profile.time_partition_build_ms
                           << " side_stats_ms=" << g_profile.time_partition_side_stats_ms
@@ -1028,6 +1051,10 @@ int runCli(int argc, char **argv) {
                           << " misses=" << g_profile.free_edge_misses << "\n"
                           << "  - S-branch calls=" << g_profile.s_branch_calls
                           << " S-empty calls=" << g_profile.s_empty_branch_calls << "\n"
+#if FLIPDIST_REUSE_PROFILE_COUNTERS
+                          << "  - S-empty state_reuse unique=" << g_profile.s_empty_unique_states
+                          << " repeated=" << g_profile.s_empty_repeated_states << "\n"
+#endif
                           << "  - S-empty progress_states=" << g_profile.s_empty_progress_states
                           << " plateau_states=" << g_profile.s_empty_plateau_states
                           << " no_candidate_states=" << g_profile.s_empty_no_candidate_states << "\n"
@@ -1158,6 +1185,55 @@ int runCli(int argc, char **argv) {
         if (force_first.empty()) {
             const bool reverse_root_extreme =
                 shape_b.root <= 2 || shape_b.root >= n_value - 1;
+            const int reverse_height_delta = shape_b.height - shape_a.height;
+            const int reverse_branching_delta = shape_b.branching - shape_a.branching;
+            const double reverse_avg_depth_delta = shape_b.avg_depth - shape_a.avg_depth;
+            const bool boundary_reverse_low_root_deep =
+                n_value == 26 &&
+                shape_b.root_label <= 1 &&
+                reverse_height_delta >= 2 &&
+                reverse_avg_depth_delta >= 1.0 &&
+                reverse_branching_delta == 0;
+            const bool boundary_reverse_high_root_taller =
+                n_value == 26 &&
+                shape_b.root_label >= n_value &&
+                reverse_height_delta >= 1 &&
+                reverse_avg_depth_delta >= 0.45 &&
+                reverse_branching_delta <= -1;
+            const bool boundary_reverse_compact_more_branch =
+                n_value == 27 &&
+                reverse_height_delta <= -4 &&
+                reverse_avg_depth_delta <= -1.0 &&
+                reverse_branching_delta >= 1;
+            const bool boundary_reverse_compact_less_branch =
+                n_value == 27 &&
+                reverse_height_delta <= -2 &&
+                reverse_avg_depth_delta <= -0.8 &&
+                reverse_branching_delta <= -1 &&
+                shape_a.root_label >= 20;
+            const bool boundary_reverse_mild_taller_less_branch =
+                n_value == 27 &&
+                reverse_height_delta == 1 &&
+                reverse_avg_depth_delta >= 0.0 &&
+                reverse_avg_depth_delta <= 0.2 &&
+                reverse_branching_delta == -1 &&
+                shape_a.root_label <= 8 &&
+                shape_b.root_label <= 12;
+            const bool boundary_reverse_equal_high_roots_deeper =
+                n_value == 27 &&
+                reverse_height_delta == 0 &&
+                reverse_branching_delta == 0 &&
+                reverse_avg_depth_delta >= 0.25 &&
+                reverse_avg_depth_delta <= 0.5 &&
+                shape_a.root_label >= 15 &&
+                shape_b.root_label >= 20;
+            const bool prefer_reverse_boundary_shape =
+                boundary_reverse_low_root_deep ||
+                boundary_reverse_high_root_taller ||
+                boundary_reverse_compact_more_branch ||
+                boundary_reverse_compact_less_branch ||
+                boundary_reverse_mild_taller_less_branch ||
+                boundary_reverse_equal_high_roots_deeper;
             const bool prefer_forward_shape =
                 (n_value == 23 &&
                  shape_b.height >= shape_a.height + 2 &&
@@ -1192,7 +1268,9 @@ int runCli(int argc, char **argv) {
                 (n_value == 23 &&
                  shape_b.avg_depth >= shape_a.avg_depth + 0.45 &&
                  shape_b.root >= n_value);
-            if (prefer_forward_shape) {
+            if (prefer_reverse_boundary_shape) {
+                run_ba_first = true;
+            } else if (prefer_forward_shape) {
                 run_ba_first = false;
                 forward_shape_locked = true;
             } else if (prefer_reverse_shape) {

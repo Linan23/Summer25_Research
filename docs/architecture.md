@@ -1,16 +1,22 @@
 # Architecture
 
-FlipDist is a C++ exact solver for rooted binary-tree flip distance. It keeps the Li-Xia decomposition structure intact. The Java triangulation oracle is separate and is used only to check C++ answers on small enough cases.
+FlipDist is a C++ exact solver for rooted binary-tree flip distance. The implementation follows the algorithmic structure of Li and Xia's STACS 2023 FPT algorithm for Convex Flip Distance while using binary trees as the working representation. The Java triangulation oracle is separate and is used only to check C++ answers on small enough cases.
+
+For the primary reference and links, see `docs/references.md`.
+
+## Research Basis
+
+Convex polygon triangulations and rooted full binary trees are equivalent representations for this problem: a flip in a convex triangulation corresponds to a rotation in the binary tree. The Li-Xia algorithm solves the parameterized decision problem "is the flip distance at most `k`?" using structural properties of optimal flip sequences. This repository keeps that exact-search contract and studies practical performance, validation, and bottlenecks in an implementation setting.
 
 ## Component Map
 
 | Component | What it does |
 |---|---|
-| `flipdist` | Main command-line solver used by benchmarks. |
+| `flipdist` | Main exact solver binary used by benchmarks. |
 | `bf_bst` | Small brute-force checker for validation. |
 | Java oracle | Independent triangulation-based checker for feasible sizes. |
-| Benchmark tools | Python scripts that run sweeps, compare outputs, and save summaries. |
-| Curated CSVs | Small retained benchmark files that document the current project state. |
+| Benchmark tools | Python scripts for sweeps, parity checks, plotting, and external comparisons. |
+| Curated CSVs | Retained benchmark summaries that document the current empirical state. |
 
 ## Source Layout
 
@@ -22,7 +28,7 @@ FlipDist is a C++ exact solver for rooted binary-tree flip distance. It keeps th
 
 - `FlipDistTree`: internal tree representation and structural helpers.
 - `TreeDistI`: interval subproblem solver.
-- `TreeDistS`: side-subproblem solver. The current hard path is `S.empty()`, where many recursive choices can appear.
+- `TreeDistS`: side-subproblem solver. The current bottleneck is `S.empty()`, where many recursive choices can appear.
 - Partition-driven branching: the solver splits a problem into sides, assigns search budget to each side, and checks whether both sides can fit.
 
 `src/flipdist/memoization.*` owns reusable keying and cache layers used by the recursive solver. `src/flipdist/helpers.*` provides supporting utilities shared by the algorithm and CLI.

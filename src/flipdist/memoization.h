@@ -12,6 +12,10 @@
 #include <utility>
 #include <vector>
 
+#ifndef FLIPDIST_REUSE_PROFILE_COUNTERS
+#define FLIPDIST_REUSE_PROFILE_COUNTERS 0
+#endif
+
 extern const bool DEBUG;
 
 struct ProfileStats {
@@ -46,7 +50,15 @@ struct ProfileStats {
     long long tdi_rotation_skips = 0;
     long long memo_hits_tds = 0;
     long long bounds_hits_tds = 0;
+    long long tds_unique_states = 0;
+    long long tds_repeated_states = 0;
     long long calls_partition = 0;
+    long long partition_unique_structures = 0;
+    long long partition_repeated_structures = 0;
+    long long partition_unique_side_states = 0;
+    long long partition_repeated_side_states = 0;
+    long long partition_unique_split_signatures = 0;
+    long long partition_repeated_split_signatures = 0;
     long long partition_precheck_calls = 0;
     long long partition_precheck_matches = 0;
     long long partition_precheck_mismatches = 0;
@@ -64,6 +76,8 @@ struct ProfileStats {
     long long free_edge_misses = 0;
     long long s_branch_calls = 0;
     long long s_empty_branch_calls = 0;
+    long long s_empty_unique_states = 0;
+    long long s_empty_repeated_states = 0;
     long long s_empty_no_candidate_states = 0;
     long long s_empty_progress_states = 0;
     long long s_empty_plateau_states = 0;

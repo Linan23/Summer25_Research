@@ -1,0 +1,6 @@
+n,timeout_sec,target_directed_ok,current_directed_ok,directed_total,current_pct,gap_to_target_directed,target_status,notes
+23,2.5,200,198,202,98.02,2,not_reached,Target was 99% for n=23..25; exact-safe hard-seed probes recovered 0/15 under 2.5s.
+24,2.5,200,186,202,92.08,14,not_reached,Target was 99% for n=23..25; exact-safe hard-seed probes recovered 0/15 under 2.5s.
+25,2.5,200,192,202,95.05,8,not_reached,Target was 99% for n=23..25; exact-safe hard-seed probes recovered 0/15 under 2.5s.
+26,2.0,182,174,202,86.14,8,not_reached,Target was 90% for n=26..27; latest Li-Xia-preserving patch improved n=27 but remaining seeds are still hard.
+27,2.0,182,176,202,87.13,6,not_reached,Target was 90% for n=26..27; latest Li-Xia-preserving patch improved n=27 but remaining seeds are still hard.
