@@ -38,7 +38,7 @@ tests/script_help.py
 
 ## Optimization Guidelines
 
-The current implementation bottleneck is `TreeDistS` in `S.empty()`. Hard cases spend most of their time repeating partition-side checks and budget-loop work. Changes in this area should be paired with:
+The current implementation bottleneck is `TreeDistS` in `S.empty()`. Complex cases spend most of their time repeating partition-side checks and budget-loop work. Changes in this area should be paired with:
 
 - Java parity on feasible oracle ranges.
 - A random sweep sanity run for `n=23..25`, seeds `0..20`.

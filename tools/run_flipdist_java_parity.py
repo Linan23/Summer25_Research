@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parity harness: C++ FlipDist vs Java BFS (triangulation oracle).
 
-This runs the C++ `flipdist` CLI to generate random/comb tree pairs and
+This runs the C++ `flipdist` CLI to generate random or simple tree pairs and
 computes the exact flip distance using the Java BFS implementation
 (`TriangulationMetricsCli`). It then reports any distance mismatches.
 """
@@ -175,7 +175,13 @@ def maybe_prompt_output(cfg) -> None:
 
 def parse_args():
     p = argparse.ArgumentParser(description="Verify C++ flipdist against Java BFS oracle.")
-    p.add_argument("--case", dest="case_type", choices=["comb", "random"], default="random")
+    p.add_argument(
+        "--case",
+        dest="case_type",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="'simple' is the clearer alias for the older 'comb'.",
+    )
     p.add_argument("--n", type=int, required=True)
     p.add_argument("--count", type=int, default=1)
     p.add_argument("--seed", type=int, default=0)
@@ -206,6 +212,8 @@ def parse_args():
 
 def main() -> int:
     cfg = parse_args()
+    if cfg.case_type == "comb":
+        cfg.case_type = "simple"
     if cfg.n > cfg.max_java_n and not cfg.allow_java_n_over:
         raise SystemExit(
             f"Refusing to run Java BFS at n={cfg.n} (max {cfg.max_java_n}). "

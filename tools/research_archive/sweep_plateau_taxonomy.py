@@ -19,7 +19,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-min", type=int, default=0)
     parser.add_argument("--seed-max", type=int, default=0)
     parser.add_argument("--cpp-binary", default="./build/flipdist")
-    parser.add_argument("--case", dest="case_type", choices=["random", "comb"], default="random")
+    parser.add_argument(
+        "--case",
+        dest="case_type",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="'simple' is the clearer alias for the older 'comb'.",
+    )
     parser.add_argument("--timeout-sec", type=float, default=10.0)
     parser.add_argument("--max-k-mult", type=int, default=2)
     parser.add_argument("--raw-dir", required=True, help="Directory for raw profile outputs")
@@ -36,6 +42,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     cfg = parse_args()
+    if cfg.case_type == "comb":
+        cfg.case_type = "simple"
     raw_dir = Path(cfg.raw_dir)
     raw_dir.mkdir(parents=True, exist_ok=True)
 

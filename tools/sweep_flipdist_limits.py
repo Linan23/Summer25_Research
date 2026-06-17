@@ -2,7 +2,7 @@
 """Sweep FlipDist runtime limits across n and seeds.
 
 This is a performance harness (not a correctness oracle). It runs the C++
-`flipdist` CLI on random or comb cases across a range of n and seeds,
+`flipdist` CLI on random or simple generated cases across a range of n and seeds,
 records per-direction status/time, and prints a per-n summary.
 
 Example:
@@ -42,7 +42,13 @@ def float_list(arg: str) -> list[float]:
 
 def parse_args():
     p = argparse.ArgumentParser(description="Sweep FlipDist performance across n/seeds.")
-    p.add_argument("--case", dest="case_type", choices=["random", "comb"], default="random")
+    p.add_argument(
+        "--case",
+        dest="case_type",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="Generated case type. 'simple' is the clearer alias for the older 'comb'.",
+    )
     p.add_argument("--n-min", type=int, required=True)
     p.add_argument("--n-max", type=int, required=True)
     p.add_argument("--seed-min", type=int, default=0, help="Only used for --case random")
@@ -235,6 +241,8 @@ def invoke_flipdist(cfg, n: int, seed: int, max_k: int, timeout_sec: float, bfs_
 
 def main() -> int:
     cfg = parse_args()
+    if cfg.case_type == "comb":
+        cfg.case_type = "simple"
     out_path = resolve_output_path(cfg)
     if out_path:
         out_path.parent.mkdir(parents=True, exist_ok=True)

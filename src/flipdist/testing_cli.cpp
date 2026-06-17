@@ -447,9 +447,14 @@ struct CliOptions {
 // Returns: nothing
 // Errors: none
 static void printUsage(const char *argv0) {
-    std::cerr << "Usage: " << argv0 << " --case random|comb --n <int> [--seed <int>] [--count <int>]\n"
+    std::cerr << "Usage: " << argv0 << " --case random|simple|comb --n <int> [--seed <int>] [--count <int>]\n"
               << "       [--max-k <int>] [--bfs-cap <int>] [--print-trees] [--emit-path] [--path-ascii]\n"
-              << "   or: " << argv0 << " --tree-a-file <path> --tree-b-file <path> [--max-k <int>] [--print-trees]\n";
+              << "   or: " << argv0 << " --tree-a-file <path> --tree-b-file <path> [--max-k <int>] [--print-trees]\n"
+              << "   Note: --case simple is the clearer alias for the older --case comb.\n";
+}
+
+static bool isSimpleGeneratedCase(const std::string &case_type) {
+    return case_type == "simple" || case_type == "comb";
 }
 
 // Definition: Parse CLI flags into CliOptions
@@ -739,8 +744,8 @@ int runCli(int argc, char **argv) {
         std::cerr << "Invalid --count\n";
         return 2;
     }
-    if (!custom_inputs && opts.case_type != "random" && opts.case_type != "comb") {
-        std::cerr << "Invalid --case (use random or comb)\n";
+    if (!custom_inputs && opts.case_type != "random" && !isSimpleGeneratedCase(opts.case_type)) {
+        std::cerr << "Invalid --case (use random, simple, or comb)\n";
         return 2;
     }
 

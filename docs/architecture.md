@@ -20,9 +20,9 @@ Convex polygon triangulations and rooted full binary trees are equivalent repres
 
 ## Source Layout
 
-`src/flipdist/main.cpp` is the `flipdist` CLI entrypoint. It delegates argument parsing, random/comb generation, file input, and JSON-lines output to `testing_cli.*`.
+`src/flipdist/main.cpp` is the `flipdist` CLI entrypoint. It delegates argument parsing, random/simple-case generation, file input, and JSON-lines output to `testing_cli.*`.
 
-`src/flipdist/bf_bst.*` contains the binary-tree representation, rotation helpers, random/comb construction, canonical serialization, and the `bf_bst` brute-force validator binary.
+`src/flipdist/bf_bst.*` contains the binary-tree representation, rotation helpers, random/simple construction, canonical serialization, and the `bf_bst` brute-force validator binary.
 
 `src/flipdist/algorithm.*` contains the main exact solver flow. The important parts are:
 
@@ -37,7 +37,7 @@ Convex polygon triangulations and rooted full binary trees are equivalent repres
 
 The public `flipdist` binary emits two directed rows for each case: `a->b` and `b->a`. Each row reports `case_type`, `n`, `seed`, `direction`, `distance`, `time_ms`, `status`, tree encodings, and `max_k`.
 
-The search remains complete for the configured `max_k`. Optimization work should preserve the distance definition, output fields, status meanings, and Li-Xia decomposition. Current bottleneck work is concentrated in `TreeDistS`, where repeated split exploration and partition budget loops dominate hard random cases.
+The search remains complete for the configured `max_k`. Optimization work should preserve the distance definition, output fields, status meanings, and Li-Xia decomposition. Current bottleneck work is concentrated in `TreeDistS`, where repeated split exploration and partition budget loops dominate complex random cases.
 
 ## Validation Layers
 

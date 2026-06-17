@@ -20,7 +20,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate shared convex-polygon benchmark instances for FlipDist and A*"
     )
-    parser.add_argument("--case", choices=["random", "comb"], default="random")
+    parser.add_argument(
+        "--case",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="'simple' is the clearer alias for the older 'comb'.",
+    )
     parser.add_argument("--n", type=int, required=True, help="Number of BST nodes / number of triangles")
     parser.add_argument("--seed-min", type=int, default=0, help="First seed to generate")
     parser.add_argument("--seed-max", type=int, default=0, help="Last seed to generate")
@@ -203,6 +208,8 @@ def generate_case(case_type: str, n: int, seed: int) -> tuple[tuple[list[int], l
 
 def main() -> int:
     cfg = parse_args()
+    if cfg.case == "comb":
+        cfg.case = "simple"
     if cfg.n <= 0:
         raise SystemExit("--n must be positive")
     if cfg.seed_max < cfg.seed_min:

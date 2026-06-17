@@ -17,7 +17,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate shared convex instances and compare FlipDist vs A* on the exact same inputs"
     )
-    parser.add_argument("--case", choices=["random", "comb"], default="random")
+    parser.add_argument(
+        "--case",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="'simple' is the clearer alias for the older 'comb'.",
+    )
     parser.add_argument("--n-min", type=int, required=True)
     parser.add_argument("--n-max", type=int, required=True)
     parser.add_argument("--seed-min", type=int, default=0)
@@ -88,7 +93,12 @@ def parse_algos(raw: str) -> list[str]:
     return sorted(set(algos))
 
 
+def canonical_case_type(case_type: str) -> str:
+    return "simple" if case_type == "comb" else case_type
+
+
 def generate_shared_case(root: Path, case_type: str, n: int, seed: int) -> dict[str, Path | str | int]:
+    case_type = canonical_case_type(case_type)
     case_dir = root / f"n_{n}" / f"set_{seed}"
     tri_dir = case_dir / "triangulation"
     tri_dir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +305,7 @@ def remaining_timeout(deadline: float | None) -> float | None:
 
 def main() -> int:
     cfg = parse_args()
+    cfg.case = canonical_case_type(cfg.case)
     if cfg.n_max < cfg.n_min:
         raise SystemExit("--n-max must be >= --n-min")
     if cfg.seed_max < cfg.seed_min:
