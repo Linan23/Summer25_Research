@@ -9,13 +9,13 @@ cmake_install.cmake
 compile_commands.json
 
 # Binaries
-bf_bst
-flipdist
-flipdist_fast
-flipdist_asan
-test
-test_fast
-test_asan
+/bf_bst
+/flipdist
+/flipdist_fast
+/flipdist_asan
+/test
+/test_fast
+/test_asan
 
 # Debug symbols
 *.dSYM/

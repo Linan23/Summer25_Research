@@ -2,6 +2,8 @@
 
 This page records the benchmark and parity commands used to evaluate the FlipDist research solver. The retained metrics are intended to make the implementation reproducible and to separate exactness checks from performance measurements.
 
+See `docs/terminology.md` for plain-language definitions of directed rows, combined directed coverage, simple cases, complex cases, timeouts, and other benchmark terms.
+
 Run all commands from the repository root after building with CMake or `./setup.sh`.
 
 ## Fast Validation Wrappers
@@ -277,7 +279,7 @@ python3 tools/plot_flipdist_vs_astar_compare.py \
   --summary-output results/shared_convex_flipdist_vs_astar_n22_25_seeds0_100_timeout10_summary.csv
 ```
 
-A local no-Gurobi AStar build can be used for `simple` and `combined` comparisons when Gurobi is unavailable, but the checkout and patch stay under ignored `third_party/`. The current local comparable summary is retained in `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`.
+A local no-Gurobi AStar build can be used for AStarFlipDistance `simple` and `combined` algorithm comparisons when Gurobi is unavailable, but the checkout and patch stay under ignored `third_party/`. These are external A* algorithm names, not project case names. The current local comparable summary is retained in `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv`.
 
 The local summary was produced from two bounded sweeps:
 
@@ -309,6 +311,6 @@ When timeout subsets differ, prefer paired-row medians over raw solved-case medi
 
 ## Metric Notes
 
-Random sweep rows are directed. A single generated seed normally produces `a->b` and `b->a` rows. Directed coverage counts both rows. Pair coverage counts the seed only when both directions return `ok`.
+Random sweep rows are directed. A single generated seed normally produces `a->b` and `b->a` rows. Directed coverage counts both rows. Pair coverage counts the seed only when both directions return `ok`. Combined directed coverage is the same directed-row calculation after grouping multiple sizes or runs together.
 
 `status=ok` means the exact solver found a distance within the configured `max_k`. `status=timeout` means the Python harness stopped the run at the configured wall-clock cap. In the full hard-limit sweep, the cap is applied to the `flipdist` process for one seed; if the process does not return both JSON rows before the cap, the harness records both directions as timeout. Timing near a fixed threshold such as 2s can vary slightly between runs and machines.

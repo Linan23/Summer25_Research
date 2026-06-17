@@ -1,4 +1,4 @@
-# FlipDist Research Solver
+# Exact Flip Distance Research Code
 
 FlipDist is a research implementation of an exact solver for flip distance on rooted binary trees, equivalently rotation distance between binary trees or flip distance between triangulations of a convex polygon. The solver is built on the fixed-parameter algorithmic framework of Li and Xia, "An O(3.82^k) Time FPT Algorithm for Convex Flip Distance" (STACS 2023).
 
@@ -35,7 +35,7 @@ The current practical limit evidence is summarized in `docs/hard-limit-analysis.
 | `n=26..27` | Practical boundary; latest full `0..100` coverage is improved but still below 90% under `2s`. |
 | `n=28+` | Current Li-Xia-structured solver is not reliable under the strict `2s` cap. |
 
-The bottleneck is still `TreeDistS/S.empty()`: hard cases repeatedly explore rotation children and partition-side checks. Local exact budget-probe tuning and ordering improvements help timing-margin cases, but the retained sweeps suggest that 90%-plus coverage through n=27 under `2s` would require a deeper structural improvement.
+The bottleneck is still `TreeDistS/S.empty()`: complex cases repeatedly explore rotation children and partition-side checks. Local exact budget-probe tuning and ordering improvements help timing-margin cases, but the retained sweeps suggest that 90%-plus coverage through n=27 under `2s` would require a deeper structural improvement.
 
 ## Quick Start
 
@@ -62,6 +62,8 @@ Small parity check against the Java oracle:
 tests/java_parity.sh
 ```
 
+New readers may want `docs/terminology.md` first. It defines terms such as simple case, complex case, directed row, combined directed coverage, timeout, and hard-limit analysis.
+
 ## Directory Map
 
 | Path | Purpose |
@@ -81,6 +83,7 @@ tests/java_parity.sh
 
 - `docs/architecture.md`: solver components and Li-Xia flow.
 - `docs/references.md`: primary paper citation and problem background.
+- `docs/terminology.md`: plain-language definitions for benchmark and solver terms.
 - `docs/benchmarks.md`: maintained benchmark and parity commands.
 - `docs/hard-limit-analysis.md`: current hard-limit, hard-case profile, and AStar comparison evidence.
 - `docs/development.md`: build/test workflow and contribution expectations.

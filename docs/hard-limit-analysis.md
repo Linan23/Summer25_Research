@@ -1,6 +1,6 @@
 # Hard-Limit Analysis
 
-This page summarizes the current empirical limits of the FlipDist implementation. It is written for researchers and collaborators who need to understand what the solver can reproduce, where the retained benchmarks start to fail under fixed time caps, and which bottlenecks remain open.
+This page summarizes the current empirical limits of the FlipDist implementation. It is written for researchers and collaborators who need to understand what the solver can reproduce, where the retained benchmarks start to fail under fixed time caps, and which bottlenecks remain open. Definitions for benchmark terms are in `docs/terminology.md`.
 
 The implementation is based on the Li-Xia exact FPT framework for Convex Flip Distance; see `docs/references.md`. FlipDist remains an exact solver for the configured `max_k`. A timeout does not imply an incorrect distance; it means the process did not finish within the benchmark cap.
 
@@ -26,7 +26,7 @@ The maintained baseline remains `n=23..25`, seeds `0..100`, timeout `2.5s`, `max
 
 Combined directed coverage is `576/606 = 95.0%`. This is the stable baseline range for the current solver.
 
-A fresh validation run on this build recorded `n=23: 198/202`, `n=24: 184/202`, and `n=25: 192/202`. The only row-level difference from the retained baseline was n=24 seed `24`, which solved in `2395.958 ms` in the retained run and now lands around `2.57s` when forced through the easier direction. This is another strict-time timing-margin case. The compact validation summary is retained in `benchmarks/random_n23_25_profile_instrumented_validation_summary.csv`.
+A fresh validation run on this build recorded `n=23: 198/202`, `n=24: 184/202`, and `n=25: 192/202`. The only row-level difference from the retained baseline was n=24 seed `24`, which solved in `2395.958 ms` in the retained run and now lands around `2.57s` when forced through the lower-cost direction. This is another strict-time timing-margin case. The compact validation summary is retained in `benchmarks/random_n23_25_profile_instrumented_validation_summary.csv`.
 
 ## 99% Baseline Attempt
 
@@ -131,7 +131,7 @@ Operationally, the bottleneck appears as follows:
 1. The solver reaches a state where many rotations are possible.
 2. Many rotations lead to similar-looking subproblems.
 3. The solver repeatedly splits those subproblems into partition sides.
-4. Hard cases create hundreds of thousands of repeated recursive checks before the 2s cap expires.
+4. Complex cases create hundreds of thousands of repeated recursive checks before the 2s cap expires.
 
 The current implementation already uses safe caching, child-state deduplication, lower-bound reuse, and direction ordering. These reduce some repeated work, but they do not remove the core growth in the empty-`S` branch.
 
@@ -145,7 +145,7 @@ The first n=26..27 boundary pass improved the smaller seeds `0..20` slice by cha
 | After direction lock | 2s | 40/42 = 95.2% | 36/42 = 85.7% | 76/84 = 90.5% |
 | Empty-S pair-bound propagation | 2s | 40/42 = 95.2% | 36/42 = 85.7% | 76/84 = 90.5% |
 
-That improvement came from solving timing-margin cases earlier. It did not fix the persistent hard seeds.
+That improvement came from solving timing-margin cases earlier. It did not fix the persistent complex seeds.
 
 The latest full `0..100` boundary pass added a narrower shape-based direction rule. It recovered seven previously timed-out seed pairs without changing exact distances or the Li-Xia search:
 
@@ -165,12 +165,12 @@ Profile evidence for `n=27 seed=83` shows what the budget-probe tuning fixed. Si
 
 For example, before the patch, `n=27 seed=32` entered the hard `a->b` direction first and aborted after more than `346,000` `TreeDistS` calls, `160,000` empty-`S` calls, and `128,000` partition calls. After the patch, it starts with `b->a`, solves in about `336 ms`, and the reverse direction reuses the exact result immediately.
 
-Persistent hard seeds in the smaller slice:
+Persistent complex seeds in the smaller slice:
 
 - `n=26`: seed `14`.
 - `n=27`: seeds `5`, `9`, and `14`.
 
-Profile samples still show the same bottleneck. After the direction patch, persistent hard seeds still abort at 5s with very high recursive pressure. Profile times are accumulated across recursive calls, so a counter can be larger than wall-clock time.
+Profile samples still show the same bottleneck. After the direction patch, persistent complex seeds still abort at 5s with very high recursive pressure. Profile times are accumulated across recursive calls, so a counter can be larger than wall-clock time.
 
 | Profile | Direction | TreeDistS calls | Empty-S calls | Partition calls | Accumulated budget-loop time |
 |---|---|---:|---:|---:|---:|

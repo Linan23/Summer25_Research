@@ -16,7 +16,13 @@ from pathlib import Path
 
 def parse_args():
     p = argparse.ArgumentParser(description="Sweep FlipDist vs Java BFS parity across n/seeds.")
-    p.add_argument("--case", dest="case_type", choices=["comb", "random"], default="random")
+    p.add_argument(
+        "--case",
+        dest="case_type",
+        choices=["random", "simple", "comb"],
+        default="random",
+        help="'simple' is the clearer alias for the older 'comb'.",
+    )
     p.add_argument("--n-min", type=int, required=True)
     p.add_argument("--n-max", type=int, required=True)
     p.add_argument("--seed-min", type=int, default=0)
@@ -111,6 +117,8 @@ def run_one(cfg, n: int, seed: int, out_csv: Path) -> int:
 
 def main() -> int:
     cfg = parse_args()
+    if cfg.case_type == "comb":
+        cfg.case_type = "simple"
     if cfg.n_max < cfg.n_min:
         raise SystemExit("--n-max must be >= --n-min")
     if cfg.seed_max < cfg.seed_min:
