@@ -6,6 +6,8 @@ The repository is organized for research handoff and reproducibility. It contain
 
 See `docs/references.md` for the paper citation and problem background. See `docs/architecture.md` for how the paper-level structure maps onto this C++/Python/Java codebase.
 
+The organization follows the spirit of the `gchure/reproducible_research` template: each major area has a clear purpose, generated artifacts are separated from tracked summaries, and reproduction commands are documented from the repository root. The adaptation is described in `docs/reproducible-research.md`.
+
 ## Current Solver Status
 
 Current retained random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
@@ -62,6 +64,12 @@ Small parity check against the Java oracle:
 tests/java_parity.sh
 ```
 
+Open the browser visualizer and generate a case from the page:
+
+```bash
+python3 tools/visualizer/serve.py
+```
+
 New readers may want `docs/terminology.md` first. It defines terms such as simple case, complex case, directed row, combined directed coverage, timeout, and hard-limit analysis.
 
 ## Directory Map
@@ -69,7 +77,9 @@ New readers may want `docs/terminology.md` first. It defines terms such as simpl
 | Path | Purpose |
 | --- | --- |
 | `src/flipdist/` | C++ solver, brute-force validator, CLI, memoization, and helper code. |
+| `scripts/` | Setup and workflow automation. |
 | `tools/` | Maintained benchmark, parity, plotting, and comparison scripts. |
+| `tools/visualizer/` | Local browser visualizer for normal `flipdist` JSON-lines output. |
 | `tools/research_archive/` | Historical one-off analysis tools retained for reference only. |
 | `tests/` | Smoke, parity, benchmark-slice, and script-help wrappers. |
 | `oracle/java/` | Java triangulation oracle source and required `acm.jar`. |
@@ -81,6 +91,7 @@ New readers may want `docs/terminology.md` first. It defines terms such as simpl
 
 ## Documentation
 
+- `docs/reproducible-research.md`: how this repository adapts the research-template layout.
 - `docs/architecture.md`: solver components and Li-Xia flow.
 - `docs/references.md`: primary paper citation and problem background.
 - `docs/terminology.md`: plain-language definitions for benchmark and solver terms.
@@ -90,6 +101,8 @@ New readers may want `docs/terminology.md` first. It defines terms such as simpl
 - `docs/data-artifacts.md`: retained artifacts, ignored outputs, and regeneration policy.
 - `docs/repository-inventory.md`: file classes and tracked/ignored policy.
 - `docs/research-notes.md`: short handoff notes on solver contract and current bottleneck.
+
+The visualizer workflow is documented in `tools/visualizer/README.md`. It runs `flipdist` through a local server, then reconstructs small rotation paths in the browser for display only; it does not require `--emit-path` and does not change solver output.
 
 ## Requirements
 

@@ -1,0 +1,138 @@
+<!doctype html>
+<!--
+  FlipDist browser visualizer.
+  This page asks the local visualizer server to generate flipdist cases and
+  reconstructs small rotation paths in the browser for display only.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlipDist Visualizer</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <h1>FlipDist Visualizer</h1>
+      <p>BST-style views for exact flip-distance runs.</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="generate-band" aria-label="Generate a solver case">
+      <label class="field compact">
+        <span>n</span>
+        <input id="generateN" type="number" min="5" max="60" step="1" value="12">
+      </label>
+
+      <label class="field">
+        <span>Case type</span>
+        <select id="generateCaseType">
+          <option value="easy">Easy case</option>
+          <option value="hard" selected>Hard case</option>
+        </select>
+      </label>
+
+      <label class="field compact">
+        <span>Seed</span>
+        <input id="generateSeed" type="number" step="1" value="0">
+      </label>
+
+      <label class="field compact">
+        <span>max_k</span>
+        <input id="generateMaxK" type="number" min="1" max="10000" step="1" placeholder="auto">
+      </label>
+
+      <button id="generateCase" type="button" class="primary-button">Generate</button>
+    </section>
+
+    <section class="control-band" aria-label="Case controls">
+      <label class="field">
+        <span>Case</span>
+        <select id="caseSelect"></select>
+      </label>
+
+      <div class="direction-tabs" role="tablist" aria-label="Direction">
+        <button id="dirAB" type="button" class="tab is-active" data-direction="a->b">a-&gt;b</button>
+        <button id="dirBA" type="button" class="tab" data-direction="b->a">b-&gt;a</button>
+      </div>
+
+      <label class="field compact">
+        <span>State cap</span>
+        <input id="stateCap" type="number" min="1000" max="1000000" step="10000" value="150000">
+      </label>
+    </section>
+
+    <section class="status-band" aria-live="polite">
+      <div class="metric">
+        <span>Case type</span>
+        <strong id="caseType">-</strong>
+      </div>
+      <div class="metric">
+        <span>n</span>
+        <strong id="caseN">-</strong>
+      </div>
+      <div class="metric">
+        <span>Seed</span>
+        <strong id="caseSeed">-</strong>
+      </div>
+      <div class="metric">
+        <span>Direction</span>
+        <strong id="caseDirection">-</strong>
+      </div>
+      <div class="metric">
+        <span>Distance</span>
+        <strong id="caseDistance">-</strong>
+      </div>
+      <div class="metric">
+        <span>Status</span>
+        <strong id="caseStatus">-</strong>
+      </div>
+      <div class="metric">
+        <span>Runtime</span>
+        <strong id="caseRuntime">-</strong>
+      </div>
+      <div class="metric">
+        <span>Step</span>
+        <strong id="caseStep">-</strong>
+      </div>
+    </section>
+
+    <section class="message-line" id="messageLine">
+      Choose n and a case type, then generate a solver case.
+    </section>
+
+    <section id="playbackBand" class="playback-band" aria-label="Path playback controls" hidden>
+      <button id="resetStep" type="button">Reset</button>
+      <button id="prevStep" type="button">Prev</button>
+      <button id="playPause" type="button">Play</button>
+      <button id="nextStep" type="button">Next</button>
+      <input id="stepSlider" type="range" min="0" max="0" value="0">
+      <span id="moveLabel">Move: -</span>
+    </section>
+
+    <section id="treeGrid" class="tree-grid no-current" aria-label="Tree views">
+      <article class="tree-panel tree-panel-a">
+        <h2>Tree A</h2>
+        <div id="treeA" class="tree-canvas"></div>
+      </article>
+      <article class="tree-panel tree-panel-current">
+        <h2>Current Rotation State</h2>
+        <div id="treeCurrent" class="tree-canvas"></div>
+      </article>
+      <article class="tree-panel tree-panel-b">
+        <h2>Tree B</h2>
+        <div id="treeB" class="tree-canvas"></div>
+      </article>
+    </section>
+
+    <section class="terminology-band">
+      <h2>Terms</h2>
+      <dl id="terminologyList"></dl>
+    </section>
+  </main>
+
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
