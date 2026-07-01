@@ -65,3 +65,15 @@ Supported scripts live in `tools/`. They should remain non-interactive when `--o
 Test wrappers live in `tests/`. They should be thin, reproducible wrappers over the public commands documented in `README.md` and `docs/benchmarks.md`.
 
 Generated benchmark outputs belong in `results/`, which is ignored. Curate only stable summaries into `benchmarks/`.
+
+## Browser Visualizer
+
+`tools/visualizer/` is a local browser tool for generating and inspecting small `flipdist` cases. Its Python launcher serves the page and exposes a local endpoint that runs the existing `flipdist` binary. The page displays Tree A and Tree B from the solver's normal `tree_a` and `tree_b` fields, then reconstructs small rotation paths in the browser for visualization only.
+
+Launch it from the repository root:
+
+```bash
+python3 tools/visualizer/serve.py
+```
+
+Do not treat browser-side path reconstruction as a benchmark or correctness oracle. The C++ solver remains the source of truth for exact distance, status, and runtime.
