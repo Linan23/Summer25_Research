@@ -222,7 +222,7 @@ Promising directions include:
 
 ## AStar Comparison
 
-AStarFlipDistance is optional and benchmarked separately on shared-convex inputs.
+AStarFlipDistance is benchmarked separately on shared-convex inputs.
 
 The current local no-Gurobi comparison on paired solved rows shows FlipDist faster than A* on median runtime for `n=22..30` in that shared-convex sample. Raw medians can be misleading when one solver times out on different rows, so paired-row medians are the preferred comparison.
 

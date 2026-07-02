@@ -56,14 +56,6 @@ The project does not use a tracked external data directory. The retained random 
 
 `benchmarks/shared_convex_local_flipdist_vs_astar_n22_30_summary.csv` contains the current retained local no-Gurobi AStar comparison summary.
 
-## Ignored
-
-`results/` is the default destination for regenerated sweeps, profiles, parity CSVs, plots, and scratch experiment outputs. It is ignored so reviews do not include large or stale generated files.
-
-`build/`, `build-asan/`, `.venv/`, and `oracle/java/out/` are local setup outputs.
-
-`third_party/` is reserved for optional local checkouts such as AStarFlipDistance. Do not vendor AStar source or build outputs into the tracked repository unless project policy changes.
-
 ## Regeneration
 
 Use `docs/benchmarks.md` for maintained commands. After regenerating a result that should become part of the handoff state, copy only the final compact CSV or summary into `benchmarks/` and update `README.md` if the headline numbers change.

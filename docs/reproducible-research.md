@@ -1,8 +1,7 @@
 # Reproducible Research Organization
 
 This repository follows the spirit of the `gchure/reproducible_research`
-template while adapting it to a computational research project with C++,
-Python, and Java components. The goal is that a future researcher can identify
+template. The goal of doing so is that a future researcher can easily identify
 the solver, reproduce the retained results, and understand which files are
 source material versus generated output.
 

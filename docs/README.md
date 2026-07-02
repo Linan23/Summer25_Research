@@ -19,6 +19,4 @@ Start here:
 - `repository-inventory.md`: tracked versus ignored repository surface.
 - `research-notes.md`: compact handoff notes for future work.
 
-Generated files do not belong here. Put local sweeps, profiles, and plots in
-`results/`; promote only curated summaries to `benchmarks/`.
 
