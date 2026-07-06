@@ -19,13 +19,12 @@ Current exact random benchmark: `n=23..25`, seeds `0..200`, timeout `5s`,
 | `24` | `192/201 = 95.52%` | `9/201 = 4.48%` | `384/402 = 95.52%` | `13.657 ms` | `811.542 ms` |
 | `25` | `191/201 = 95.02%` | `10/201 = 4.98%` | `382/402 = 95.02%` | `77.078 ms` | `811.223 ms` |
 
-This meets the current `>=95%` pair-solvability target for each of `n=23`,
-`n=24`, and `n=25` under the 5s timeout. Final timeout seeds were
+Met the goal of solvability of 95% within 5s for n = 23-25. Final timeout seeds were
 `n=23: 24, 177`, `n=24: 15, 33, 73, 97, 150, 154, 156, 161, 173`, and
 `n=25: 14, 60, 73, 97, 150, 153, 154, 156, 161, 193`.
 
-Correctness guardrails remained clean: Java parity had zero distance/status
-mismatches on feasible sampled oracle ranges through `n=15`, the full benchmark
+Verified: Java parity had zero distance/status
+mismatches, the full benchmark
 had no solved-pair distance mismatches between directions, and there were no
 `not_found` or error rows. The generated final CSV is
 `results/goal_opt_random_n23_25_s0_200_t5_m3_terminal.csv`.
