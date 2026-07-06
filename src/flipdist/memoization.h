@@ -2,6 +2,7 @@
 
 #include "bf_bst.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,7 +17,7 @@
 #define FLIPDIST_REUSE_PROFILE_COUNTERS 0
 #endif
 
-extern const bool DEBUG;
+inline constexpr bool DEBUG = false;
 
 struct ProfileStats {
     bool enabled = false;
@@ -278,6 +279,7 @@ struct EmptySKeys {
     Key128 pair_key{};
     Key128 bounds_key{};
     Key128 exact_key{};
+    Key128 exact_base_key{};
 };
 
 struct EmptySBaseKeys {
@@ -290,13 +292,49 @@ EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap &T_init,
 EmptySKeys makeEmptySKeys(const VectorRangeTreeMap &T_init,
                           const VectorRangeTreeMap &T_end,
                           int k);
+Key128 makeEmptySExactKeyFromBase(Key128 exact_base_key, int k);
 
-bool tryBoundsPrune(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
-                    const Key128 &key, int k, bool &value_out);
-void updateBounds(std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
-                  const Key128 &key, int k, bool value);
-int requiredBudgetFromBounds(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
-                             const Key128 &key);
+inline bool tryBoundsPrune(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
+                           const Key128 &key, int k, bool &value_out) {
+    auto it = bounds_map.find(key);
+    if (it == bounds_map.end()) return false;
+    const auto &b = it->second;
+    if (b.min_success >= 0 && k >= b.min_success) {
+        value_out = true;
+        return true;
+    }
+    if (k <= b.max_fail) {
+        value_out = false;
+        return true;
+    }
+    return false;
+}
+
+inline void updateBounds(std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
+                         const Key128 &key, int k, bool value) {
+    auto &b = bounds_map[key];
+    if (value) {
+        if (b.min_success < 0 || k < b.min_success) {
+            b.min_success = k;
+        }
+        const int forced_fail = k - 1;
+        if (forced_fail < b.max_fail) {
+            b.max_fail = forced_fail;
+        }
+        if (b.max_fail >= b.min_success) {
+            b.max_fail = b.min_success - 1;
+        }
+    } else if (k > b.max_fail) {
+        b.max_fail = k;
+    }
+}
+
+inline int requiredBudgetFromBounds(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
+                                    const Key128 &key) {
+    auto it = bounds_map.find(key);
+    if (it == bounds_map.end()) return 0;
+    return std::max(0, it->second.max_fail + 1);
+}
 
 void resetMemo();
 void initProfile();
@@ -307,8 +345,17 @@ void throwIfProfileAbort();
 struct ScopedTimer {
     double *acc = nullptr;
     std::chrono::steady_clock::time_point t0;
-    explicit ScopedTimer(double *a);
-    ~ScopedTimer();
+    explicit ScopedTimer(double *a) : acc(a) {
+        if (acc) {
+            t0 = std::chrono::steady_clock::now();
+        }
+    }
+    ~ScopedTimer() {
+        if (acc) {
+            auto t1 = std::chrono::steady_clock::now();
+            *acc += std::chrono::duration<double, std::milli>(t1 - t0).count();
+        }
+    }
 };
 
 void debugPrint(const std::string &msg);

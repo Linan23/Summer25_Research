@@ -10,6 +10,7 @@
 #include <random>
 #include <chrono>
 #include <iomanip>
+#include <array>
 
 // Definition: Hash a (parent, child) pair for unordered containers
 // Parameters: p: pair to hash
@@ -67,8 +68,25 @@ VectorRangeTreeMap::VectorRangeTreeMap() : root(-1), max_node_value(0)
 // Errors: leaves tree empty on invalid input
 void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vector<int> &inorder)
 {
+    buildImpl(preorder, inorder, true, true);
+}
+
+void VectorRangeTreeMap::buildLight(const std::vector<int> &preorder, const std::vector<int> &inorder)
+{
+    buildImpl(preorder, inorder, false, false);
+}
+
+void VectorRangeTreeMap::buildImpl(const std::vector<int> &preorder,
+                                   const std::vector<int> &inorder,
+                                   bool populate_nodes,
+                                   bool store_preorder)
+{
     // Record original preorder for partitioning
-    original_preorder = preorder;
+    if (store_preorder) {
+        original_preorder = preorder;
+    } else {
+        original_preorder.clear();
+    }
 
     // Clear previous data
     clear();
@@ -87,11 +105,17 @@ void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vect
     original_mask.resize(max_node_value + 1, 0);
     position_in_inorder_fast.resize(max_node_value + 1, -1);
 
-    // Store original nodes
-    original_nodes.reserve(preorder.size());
+    // Store original node membership. original_mask drives hot membership checks; original_nodes
+    // is retained for callers that explicitly need set-style metadata.
+    if (populate_nodes) {
+        original_nodes.max_load_factor(2.0f);
+        original_nodes.reserve(preorder.size());
+    }
     for (int val : preorder)
     {
-        original_nodes.insert(val);
+        if (populate_nodes) {
+            original_nodes.insert(val);
+        }
         if (val >= 0 && val < (int)original_mask.size())
             original_mask[val] = 1;
     }
@@ -356,7 +380,7 @@ void VectorRangeTreeMap::print() const
 
     // Print ranges for original nodes only, in sorted order
     std::vector<int> sorted_original;
-    for (int node : original_nodes)
+    for (int node : original_inorder)
     {
         sorted_original.push_back(node);
     }
@@ -408,21 +432,113 @@ void VectorRangeTreeMap::print() const
     std::cout << "]\n";
 }
 
-// Definition: Partition tree along edge defined by inorder ranges
-// Parameters: T: source tree; parent_range: parent range; child_range: child range
-// Returns: pair of subtrees {A, B}
-// Errors: may return empty subtrees for invalid ranges
+static void collectCurrentPreorderForPartition(const VectorRangeTreeMap& T,
+                                               std::vector<int>& out)
+{
+    out.clear();
+    if (T.root < 0 || T.original_inorder.empty() || !T.isOriginal(T.root)) {
+        return;
+    }
+    const std::size_t expected = T.original_inorder.size();
+    out.reserve(expected);
+    if (expected <= 128) {
+        std::array<int, 128> stack{};
+        std::size_t top = 0;
+        stack[top++] = T.root;
+        while (top > 0) {
+            const int node = stack[--top];
+            if (node < 0 || !T.isOriginal(node)) {
+                continue;
+            }
+            out.push_back(node);
+            if (out.size() > expected) {
+                out.clear();
+                return;
+            }
+            const int right = T.getRightChild(node);
+            if (right >= 0 && T.isOriginal(right)) {
+                if (top >= stack.size()) {
+                    out.clear();
+                    return;
+                }
+                stack[top++] = right;
+            }
+            const int left = T.getLeftChild(node);
+            if (left >= 0 && T.isOriginal(left)) {
+                if (top >= stack.size()) {
+                    out.clear();
+                    return;
+                }
+                stack[top++] = left;
+            }
+        }
+    } else {
+        std::vector<int> stack;
+        stack.reserve(expected);
+        stack.push_back(T.root);
+        while (!stack.empty()) {
+            const int node = stack.back();
+            stack.pop_back();
+            if (node < 0 || !T.isOriginal(node)) {
+                continue;
+            }
+            out.push_back(node);
+            if (out.size() > expected) {
+                out.clear();
+                return;
+            }
+            const int right = T.getRightChild(node);
+            if (right >= 0 && T.isOriginal(right)) stack.push_back(right);
+            const int left = T.getLeftChild(node);
+            if (left >= 0 && T.isOriginal(left)) stack.push_back(left);
+        }
+    }
+    if (out.size() != expected) {
+        out.clear();
+    }
+}
+
 std::pair<VectorRangeTreeMap,VectorRangeTreeMap>
 VectorRangeTreeMap::partitionAlongSubtreeRange(const VectorRangeTreeMap& T,
                                                const std::pair<int,int>& child_range)
 {
-    std::vector<int> inA, inB, preA, preB;
-    inA.reserve(T.original_inorder.size());
-    inB.reserve(T.original_inorder.size());
-    preA.reserve(T.original_preorder.size());
-    preB.reserve(T.original_preorder.size());
+    thread_local std::vector<int> inA_scratch;
+    thread_local std::vector<int> inB_scratch;
+    thread_local std::vector<int> preA_scratch;
+    thread_local std::vector<int> preB_scratch;
+    thread_local std::vector<int> source_preorder_scratch;
+    auto& inA = inA_scratch;
+    auto& inB = inB_scratch;
+    auto& preA = preA_scratch;
+    auto& preB = preB_scratch;
+    inA.clear();
+    inB.clear();
+    preA.clear();
+    preB.clear();
+    const std::vector<int>* source_preorder = &T.original_preorder;
+    if (source_preorder->empty() && !T.original_inorder.empty()) {
+        collectCurrentPreorderForPartition(T, source_preorder_scratch);
+        source_preorder = &source_preorder_scratch;
+    }
+    const int lo = child_range.first;
+    const int hi = child_range.second;
+    const int subtree_size = std::max(0, hi - lo);
+    const int total_size = static_cast<int>(T.original_inorder.size());
+    inA.reserve(static_cast<std::size_t>(subtree_size));
+    preA.reserve(static_cast<std::size_t>(subtree_size));
+    inB.reserve(static_cast<std::size_t>(std::max(0, total_size - subtree_size)));
+    preB.reserve(static_cast<std::size_t>(std::max(0, total_size - subtree_size)));
 
-    const auto in_child_range = [&](int x) {
+    for (int pos = 0; pos < total_size; ++pos)
+    {
+        const int x = T.original_inorder[static_cast<std::size_t>(pos)];
+        if (pos >= lo && pos < hi)
+            inA.push_back(x);
+        else
+            inB.push_back(x);
+    }
+    for (int x : *source_preorder)
+    {
         int pos = -1;
         if (x >= 0 && x < (int)T.position_in_inorder_fast.size()) {
             pos = T.position_in_inorder_fast[x];
@@ -432,27 +548,15 @@ VectorRangeTreeMap::partitionAlongSubtreeRange(const VectorRangeTreeMap& T,
                 pos = it->second;
             }
         }
-        return pos >= child_range.first && pos < child_range.second;
-    };
-
-    for (int x : T.original_inorder)
-    {
-        if (in_child_range(x))
-            inA.push_back(x);
-        else
-            inB.push_back(x);
-    }
-    for (int x : T.original_preorder)
-    {
-        if (in_child_range(x))
+        if (pos >= lo && pos < hi)
             preA.push_back(x);
         else
             preB.push_back(x);
     }
     VectorRangeTreeMap A, B;
-    A.build(preA, inA);
-    B.build(preB, inB);
-    return {A, B};
+    A.buildLight(preA, inA);
+    B.buildLight(preB, inB);
+    return {std::move(A), std::move(B)};
 }
 
 std::pair<VectorRangeTreeMap,VectorRangeTreeMap>
@@ -460,14 +564,35 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
                                        const std::pair<int,int>& parent_range,
                                        const std::pair<int,int>& child_range)
 {
-    std::vector<int> inA, inB, preA, preB;
-    inA.reserve(T.original_inorder.size());
-    inB.reserve(T.original_inorder.size());
-    preA.reserve(T.original_preorder.size());
-    preB.reserve(T.original_preorder.size());
+    thread_local std::vector<int> inA_scratch;
+    thread_local std::vector<int> inB_scratch;
+    thread_local std::vector<int> preA_scratch;
+    thread_local std::vector<int> preB_scratch;
+    thread_local std::vector<int> source_preorder_scratch;
+    auto& inA = inA_scratch;
+    auto& inB = inB_scratch;
+    auto& preA = preA_scratch;
+    auto& preB = preB_scratch;
+    inA.clear();
+    inB.clear();
+    preA.clear();
+    preB.clear();
+    const std::vector<int>* source_preorder = &T.original_preorder;
+    if (source_preorder->empty() && !T.original_inorder.empty()) {
+        collectCurrentPreorderForPartition(T, source_preorder_scratch);
+        source_preorder = &source_preorder_scratch;
+    }
+    const int lo = child_range.first;
+    const int hi = child_range.second;
+    const int subtree_size = std::max(0, hi - lo);
+    const int total_size = static_cast<int>(T.original_inorder.size());
+    inA.reserve(static_cast<std::size_t>(subtree_size));
+    preA.reserve(static_cast<std::size_t>(subtree_size));
+    inB.reserve(static_cast<std::size_t>(std::max(0, total_size - subtree_size)));
+    preB.reserve(static_cast<std::size_t>(std::max(0, total_size - subtree_size)));
 
     bool child_range_is_subtree = false;
-    for (int x : T.original_nodes) {
+    for (int x : T.original_inorder) {
         if (T.isOriginal(x) && T.getRange(x) == child_range) {
             child_range_is_subtree = true;
             break;
@@ -484,22 +609,23 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
                     pos = it->second;
                 }
             }
-            return pos >= child_range.first && pos < child_range.second;
+            return pos >= lo && pos < hi;
         }
         auto r = T.getRange(x);
-        return r.first >= child_range.first && r.second <= child_range.second;
+        return r.first >= lo && r.second <= hi;
     };
 
     // split inorder
-    for (int x : T.original_inorder)
+    for (int pos = 0; pos < total_size; ++pos)
     {
-        if (in_child_range(x))
+        const int x = T.original_inorder[static_cast<std::size_t>(pos)];
+        if (child_range_is_subtree ? (pos >= lo && pos < hi) : in_child_range(x))
             inA.push_back(x);
         else
             inB.push_back(x);
     }
     // split preorder
-    for (int x : T.original_preorder)
+    for (int x : *source_preorder)
     {
         if (in_child_range(x))
             preA.push_back(x);
@@ -507,9 +633,9 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
             preB.push_back(x);
     }
     VectorRangeTreeMap A, B;
-    A.build(preA, inA);
-    B.build(preB, inB);
-    return {A, B};
+    A.buildLight(preA, inA);
+    B.buildLight(preB, inB);
+    return {std::move(A), std::move(B)};
 }
 
 // Definition: Reset internal vectors and metadata
@@ -558,7 +684,8 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
     if (left_size > 0)
     {
         int left_root_val = preorder[ps + 1];
-        setLeftChild(root_val, left_root_val);
+        edges[root_val].first = left_root_val;
+        parents[left_root_val] = root_val;
         buildRecursive(preorder, inorder, ps + 1, ps + left_size,
                        is, root_idx - 1, root_val);
     }
@@ -567,7 +694,8 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
     if (root_idx < ie)
     {
         int right_root_val = preorder[ps + left_size + 1];
-        setRightChild(root_val, right_root_val);
+        edges[root_val].second = right_root_val;
+        parents[right_root_val] = root_val;
         buildRecursive(preorder, inorder, ps + left_size + 1, pe,
                        root_idx + 1, ie, root_val);
     }
@@ -653,13 +781,15 @@ void VectorRangeTreeMap::calculateRangesPostOrder(int node_value)
 bool TreesEqual(const VectorRangeTreeMap &A,
                 const VectorRangeTreeMap &B)
 {
-    // Must have the same set of original node labels
-    if (A.original_nodes != B.original_nodes)
+    // Must have the same original node labels in inorder order.
+    if (A.original_inorder != B.original_inorder)
         return false;
 
     // For each node, ranges + left/right child + parent must match
-    for (int v : A.original_nodes)
+    for (int v : A.original_inorder)
     {
+        if (!A.isOriginal(v) || !B.isOriginal(v))
+            return false;
         if (A.getRange(v) != B.getRange(v))
             return false;
         if (A.getLeftChild(v) != B.getLeftChild(v))
@@ -680,7 +810,7 @@ bool TreesEqual(const VectorRangeTreeMap &A,
 std::string treeToString(const VectorRangeTreeMap &T)
 {
     // Grab & sort the original labels
-    std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
+    std::vector<int> nodes = T.original_inorder;
     std::sort(nodes.begin(), nodes.end());
 
     // Build a single string with fixed separators
@@ -726,7 +856,7 @@ size_t RPH::operator()(RP const &r) const {
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T)
 {
     std::unordered_set<RP, RPH> s;
-    s.reserve(T.original_nodes.size() * 2 + 1);
+    s.reserve(T.original_inorder.size() * 2 + 1);
     auto dfs = [&](auto&& self, int v) -> void {
         if (v < 0 || !T.isOriginal(v))
             return;
@@ -786,7 +916,7 @@ bool hasFreeEdge(const VectorRangeTreeMap &cur,
     // collect all (parent_range,child_range) edges in the target
     auto tgtEdges = buildTargetSet(tgt);
 
-    for (int v : cur.original_nodes)
+    for (int v : cur.original_inorder)
     {
         // try a left‐rotation at v (pull up its right child y)
         int y = cur.getRightChild(v);
@@ -903,8 +1033,8 @@ int Dist(const VectorRangeTreeMap &Ts,
         auto [A1, A2] = VectorRangeTreeMap::partitionAlongEdge(Tbar, pr, cr);
         auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(Te, pr, cr);
 
-        if (A1.original_nodes != B1.original_nodes ||
-            A2.original_nodes != B2.original_nodes)
+        if (A1.original_inorder != B1.original_inorder ||
+            A2.original_inorder != B2.original_inorder)
         {
             result = BFSSearch(Ts, Te);
         }
@@ -956,8 +1086,8 @@ int removeFreeEdge(const VectorRangeTreeMap &Ts,
     auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(Te, pr, cr);
 
     // Sanity check, then recurse
-    if (A1.original_nodes != B1.original_nodes ||
-        A2.original_nodes != B2.original_nodes)
+    if (A1.original_inorder != B1.original_inorder ||
+        A2.original_inorder != B2.original_inorder)
     {
         return BFSSearch(Ts, Te);
     }
@@ -989,7 +1119,7 @@ int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
         Q.pop();
         int nextDist = d + 1;
 
-        for (int v : cur.original_nodes)
+        for (int v : cur.original_inorder)
         {
             // try left-rotation
             if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)

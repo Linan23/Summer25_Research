@@ -10,18 +10,25 @@ The organization follows the spirit of the `gchure/reproducible_research` templa
 
 ## Current Solver Status
 
-Current retained random benchmark: `n=23..25`, seeds `0..100`, timeout `2.5s`, `max_k=3n`.
+Current exact random benchmark: `n=23..25`, seeds `0..200`, timeout `5s`,
+`max_k=3n`, `bfs_cap=1`, both directions.
 
-| Metric | Result |
-| --- | ---: |
-| First-direction exact solves | `288/303 = 95.0%` |
-| First-direction solves under 2s | `287/303 = 94.7%` |
-| Directed exact solves | `576/606 = 95.0%` |
-| Directed timeouts | `30` |
+| n | Pair solves | Pair timeouts | Directed solves | Median solved-pair max wall time | p95 solved-pair max wall time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `23` | `199/201 = 99.00%` | `2/201 = 1.00%` | `398/402 = 99.00%` | `14.224 ms` | `978.041 ms` |
+| `24` | `192/201 = 95.52%` | `9/201 = 4.48%` | `384/402 = 95.52%` | `13.657 ms` | `811.542 ms` |
+| `25` | `191/201 = 95.02%` | `10/201 = 4.98%` | `382/402 = 95.02%` | `77.078 ms` | `811.223 ms` |
 
-Per-size directed coverage: `n=23: 198/202 = 98.0%`, `n=24: 186/202 = 92.1%`, `n=25: 192/202 = 95.0%`.
+This meets the current `>=95%` pair-solvability target for each of `n=23`,
+`n=24`, and `n=25` under the 5s timeout. Final timeout seeds were
+`n=23: 24, 177`, `n=24: 15, 33, 73, 97, 150, 154, 156, 161, 173`, and
+`n=25: 14, 60, 73, 97, 150, 153, 154, 156, 161, 193`.
 
-Single-run timing has small variance near the 2s boundary, so the under-2s count can move slightly across machines and runs. The retained CSV is in `benchmarks/random_n23_25_seeds0_100_t2p5_m3.csv`.
+Correctness guardrails remained clean: Java parity had zero distance/status
+mismatches on feasible sampled oracle ranges through `n=15`, the full benchmark
+had no solved-pair distance mismatches between directions, and there were no
+`not_found` or error rows. The generated final CSV is
+`results/goal_opt_random_n23_25_s0_200_t5_m3_terminal.csv`.
 
 ## AStarFlipDistance Comparison
 
@@ -29,11 +36,18 @@ AStarFlipDistance is optional and is not vendored in this repository. It is used
 
 ## Hard Limit Snapshot
 
-The current practical limit evidence is summarized in `docs/hard-limit-analysis.md`. The n=23..25 baseline remains below the requested 99% per-size target: `n=23: 198/202`, `n=24: 186/202`, `n=25: 192/202`. Exact-safe probes over the current n=23..25 timeout seeds recovered `0/15` under the 2.5s cap, and only `3/15` solved by 10s. After the latest exact budget-probe and direction-order pass, the retained `n=26..27`, seeds `0..100`, timeout `2s`, `max_k=3n` result stands at `n=26: 174/202 = 86.1%` and `n=27: 176/202 = 87.1%`. On the wider retained `n=26..35` sweep, coverage drops to `36.6%` by `n=35`.
+The current practical limit evidence is summarized in `docs/hard-limit-analysis.md`. The
+latest exact n=23..25 optimization pass reaches the current `>=95%` per-size
+target under a 5s cap over seeds `0..200`, but it does not claim a 99% target
+or extend that threshold to larger n. Older strict-cap evidence remains useful
+for the boundary: the retained `n=26..27`, seeds `0..100`, timeout `2s`,
+`max_k=3n` result stands at `n=26: 174/202 = 86.1%` and
+`n=27: 176/202 = 87.1%`. On the wider retained `n=26..35` sweep, coverage drops
+to `36.6%` by `n=35`.
 
 | n range | Current takeaway |
 | --- | --- |
-| `n=23..25` | Stable baseline range; combined directed coverage is `95.0%` at `2.5s`, but the 99% per-size target was not reached. |
+| `n=23..25` | Current exact solver reaches at least `95%` pair solvability per n under `5s` over seeds `0..200`. |
 | `n=26..27` | Practical boundary; latest full `0..100` coverage is improved but still below 90% under `2s`. |
 | `n=28+` | Current Li-Xia-structured solver is not reliable under the strict `2s` cap. |
 

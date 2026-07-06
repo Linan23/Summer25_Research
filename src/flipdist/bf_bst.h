@@ -174,6 +174,19 @@ private:
     // Errors: none
     void clear();
 
+    // Definition: Shared implementation for full/light tree construction
+    // Parameters: preorder/inorder traversals; populate_nodes/preorder: metadata fill toggles
+    // Returns: nothing
+    // Errors: leaves tree empty on invalid input
+    void buildImpl(const std::vector<int> &preorder, const std::vector<int> &inorder,
+                   bool populate_nodes, bool store_preorder);
+
+    // Definition: Build tree metadata without populating original_nodes
+    // Parameters: preorder/inorder: traversal arrays
+    // Returns: nothing
+    // Errors: leaves tree empty on invalid input
+    void buildLight(const std::vector<int> &preorder, const std::vector<int> &inorder);
+
     // Definition: Recompute ranges for all nodes
     // Parameters: none
     // Returns: nothing

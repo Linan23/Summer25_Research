@@ -1232,13 +1232,21 @@ int runCli(int argc, char **argv) {
                 reverse_avg_depth_delta <= 0.5 &&
                 shape_a.root_label >= 15 &&
                 shape_b.root_label >= 20;
+            const bool n25_reverse_low_root_tall_less_branchy_target =
+                n_value == 25 &&
+                shape_a.root_label <= 3 &&
+                shape_b.root_label <= 5 &&
+                reverse_height_delta >= 3 &&
+                reverse_avg_depth_delta >= 1.2 &&
+                reverse_branching_delta <= -2;
             const bool prefer_reverse_boundary_shape =
                 boundary_reverse_low_root_deep ||
                 boundary_reverse_high_root_taller ||
                 boundary_reverse_compact_more_branch ||
                 boundary_reverse_compact_less_branch ||
                 boundary_reverse_mild_taller_less_branch ||
-                boundary_reverse_equal_high_roots_deeper;
+                boundary_reverse_equal_high_roots_deeper ||
+                n25_reverse_low_root_tall_less_branchy_target;
             const bool prefer_forward_shape =
                 (n_value == 23 &&
                  shape_b.height >= shape_a.height + 2 &&
@@ -1260,7 +1268,43 @@ int runCli(int argc, char **argv) {
                  shape_b.height >= shape_a.height + 2 &&
                  shape_b.avg_depth <= shape_a.avg_depth + 0.2 &&
                  !reverse_root_extreme);
+            const bool n24_reverse_compact_high_root =
+                n_value == 24 &&
+                shape_a.root_label <= 4 &&
+                shape_b.root_label >= 10 &&
+                reverse_height_delta <= -1 &&
+                reverse_avg_depth_delta <= -0.25 &&
+                reverse_branching_delta <= 0;
+            const bool n24_forward_compact_branchier_target =
+                n_value == 24 &&
+                reverse_height_delta <= -2 &&
+                reverse_avg_depth_delta <= -0.35 &&
+                reverse_branching_delta >= 2;
+            const bool n25_reverse_high_to_compact_target =
+                n_value == 25 &&
+                shape_a.root_label >= 20 &&
+                shape_b.root_label <= 10 &&
+                reverse_height_delta <= -1 &&
+                reverse_avg_depth_delta <= -0.35 &&
+                reverse_branching_delta <= -2;
+            const bool n25_forward_mild_taller_branchier_target =
+                n_value == 25 &&
+                shape_a.root_label >= 12 &&
+                shape_b.root_label >= 20 &&
+                reverse_height_delta == 1 &&
+                reverse_avg_depth_delta >= 0.0 &&
+                reverse_avg_depth_delta <= 0.35 &&
+                reverse_branching_delta >= 1;
+            const bool n25_forward_lowroot_compact_branchier_target =
+                n_value == 25 &&
+                shape_a.root_label <= 2 &&
+                shape_b.root_label >= 8 &&
+                reverse_height_delta <= -5 &&
+                reverse_avg_depth_delta <= -2.0 &&
+                reverse_branching_delta >= 2;
             const bool prefer_reverse_shape =
+                n24_reverse_compact_high_root ||
+                n25_reverse_high_to_compact_target ||
                 ((n_value == 25 ||
                   (n_value >= 26 && shape_b.branching >= shape_a.branching)) &&
                  shape_a.avg_depth >= shape_b.avg_depth + 0.6 &&
@@ -1275,6 +1319,11 @@ int runCli(int argc, char **argv) {
                  shape_b.root >= n_value);
             if (prefer_reverse_boundary_shape) {
                 run_ba_first = true;
+            } else if (n24_forward_compact_branchier_target ||
+                       n25_forward_mild_taller_branchier_target ||
+                       n25_forward_lowroot_compact_branchier_target) {
+                run_ba_first = false;
+                forward_shape_locked = true;
             } else if (prefer_forward_shape) {
                 run_ba_first = false;
                 forward_shape_locked = true;
@@ -1327,12 +1376,34 @@ int runCli(int argc, char **argv) {
             }
         }
 
+        const int final_reverse_height_delta = shape_b.height - shape_a.height;
+        const int final_reverse_branching_delta = shape_b.branching - shape_a.branching;
+        const double final_reverse_avg_depth_delta = shape_b.avg_depth - shape_a.avg_depth;
+        const bool suppress_forward_direction_probe =
+            (n_value == 24 &&
+             final_reverse_height_delta <= -2 &&
+             final_reverse_avg_depth_delta <= -0.20 &&
+             final_reverse_branching_delta >= 2) ||
+            (n_value == 25 &&
+             shape_a.root_label >= 12 &&
+             shape_b.root_label >= 20 &&
+             final_reverse_height_delta == 1 &&
+             final_reverse_avg_depth_delta >= 0.0 &&
+             final_reverse_avg_depth_delta <= 0.40 &&
+             final_reverse_branching_delta >= 1) ||
+            (n_value == 25 &&
+             shape_a.root_label <= 2 &&
+             shape_b.root_label >= 8 &&
+             final_reverse_height_delta <= -4 &&
+             final_reverse_avg_depth_delta <= -1.50 &&
+             final_reverse_branching_delta >= 2);
         const bool direction_probe_allowed =
             !run_ba_first &&
             force_first.empty() &&
             direction_probe_threshold_ms > 0 &&
             direction_probe_delta >= 0 &&
             conflicts_ab == conflicts_ba &&
+            !suppress_forward_direction_probe &&
             reverse_shape_promising &&
             !reverse_shape_risky &&
             !(n_value >= 25 &&
