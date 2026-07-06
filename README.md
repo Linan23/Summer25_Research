@@ -48,8 +48,8 @@ to `36.6%` by `n=35`.
 | n range | Current takeaway |
 | --- | --- |
 | `n=23..25` | Current exact solver reaches at least `95%` pair solvability per n under `5s` over seeds `0..200`. |
-| `n=26..27` | Practical boundary; latest full `0..100` coverage is improved but still below 90% under `2s`. |
-| `n=28+` | Current Li-Xia-structured solver is not reliable under the strict `2s` cap. |
+| `n=26..27` | Practical boundary; latest full `0..100` coverage is improved but still below 90% under `2s` mark, still need for furthur optimization.|
+| `n=28+` | Current solver is not reliable under the strict `2s` cap. |
 
 The bottleneck is still `TreeDistS/S.empty()`: complex cases repeatedly explore rotation children and partition-side checks. Local exact budget-probe tuning and ordering improvements help timing-margin cases, but the retained sweeps suggest that 90%-plus coverage through n=27 under `2s` would require a deeper structural improvement.
 
