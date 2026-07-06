@@ -81,6 +81,23 @@ struct EmptySCoreSummary {
     std::string signature;
 };
 
+VectorRangeTreeMap treeDistSWorkCopy(const VectorRangeTreeMap& T) {
+    VectorRangeTreeMap copy;
+    copy.ranges = T.ranges;
+    copy.edges = T.edges;
+    copy.parents = T.parents;
+    copy.root = T.root;
+    copy.max_node_value = T.max_node_value;
+    copy.original_inorder = T.original_inorder;
+    copy.position_in_inorder = T.position_in_inorder;
+    copy.position_in_inorder_fast = T.position_in_inorder_fast;
+    copy.original_mask = T.original_mask;
+    copy.fingerprint_valid = T.fingerprint_valid;
+    copy.fingerprint_h1 = T.fingerprint_h1;
+    copy.fingerprint_h2 = T.fingerprint_h2;
+    return copy;
+}
+
 struct CoreDecompositionCandidate {
     VectorRangeTreeMap A1;
     VectorRangeTreeMap A2;
@@ -277,6 +294,8 @@ struct FreeEdgePartitionSideCacheEntry {
     Key128 s2_pair_key{};
     Key128 s1_bounds_key{};
     Key128 s2_bounds_key{};
+    Key128 s1_exact_base_key{};
+    Key128 s2_exact_base_key{};
 };
 
 struct EmptySChildSignature {
@@ -307,6 +326,8 @@ struct EmptySChildCacheItem {
     int child_lb = INT_MAX;
     int child_k = -1;
     int pair_incumbent = INT_MAX;
+    Key128 child_exact_key{};
+    Key128 child_exact_base_key{};
     Key128 child_pair_key{};
     Key128 child_bounds_key{};
     std::uint64_t partition_signature = 0;
@@ -357,22 +378,59 @@ bool key128Less(const Key128& a, const Key128& b) {
 }
 
 bool refreshOriginalPreorderInPlace(VectorRangeTreeMap& T) {
-    if (T.root < 0 || T.original_nodes.empty() || !T.isOriginal(T.root)) {
+    if (T.root < 0 || T.original_inorder.empty() || !T.isOriginal(T.root)) {
         return false;
     }
     T.original_preorder.clear();
-    T.original_preorder.reserve(T.original_nodes.size());
+    const std::size_t expected = T.original_inorder.size();
+    T.original_preorder.reserve(expected);
 
-    auto dfs = [&](auto&& self, int node) -> void {
-        if (node < 0 || !T.isOriginal(node)) return;
+    if (expected <= 128) {
+        std::array<int, 128> stack{};
+        std::size_t top = 0;
+        stack[top++] = T.root;
+        while (top > 0) {
+            const int node = stack[--top];
+            if (node < 0 || !T.isOriginal(node)) {
+                continue;
+            }
+            T.original_preorder.push_back(node);
+            if (T.original_preorder.size() > expected) {
+                return false;
+            }
+            const int right = T.getRightChild(node);
+            if (right >= 0 && T.isOriginal(right)) {
+                if (top >= stack.size()) return false;
+                stack[top++] = right;
+            }
+            const int left = T.getLeftChild(node);
+            if (left >= 0 && T.isOriginal(left)) {
+                if (top >= stack.size()) return false;
+                stack[top++] = left;
+            }
+        }
+        return T.original_preorder.size() == expected;
+    }
+
+    std::vector<int> stack;
+    stack.reserve(expected);
+    stack.push_back(T.root);
+    while (!stack.empty()) {
+        const int node = stack.back();
+        stack.pop_back();
+        if (node < 0 || !T.isOriginal(node)) {
+            continue;
+        }
         T.original_preorder.push_back(node);
-        const int left = T.getLeftChild(node);
+        if (T.original_preorder.size() > expected) {
+            return false;
+        }
         const int right = T.getRightChild(node);
-        if (left >= 0 && T.isOriginal(left)) self(self, left);
-        if (right >= 0 && T.isOriginal(right)) self(self, right);
-    };
-    dfs(dfs, T.root);
-    return T.original_preorder.size() == T.original_nodes.size();
+        if (right >= 0 && T.isOriginal(right)) stack.push_back(right);
+        const int left = T.getLeftChild(node);
+        if (left >= 0 && T.isOriginal(left)) stack.push_back(left);
+    }
+    return T.original_preorder.size() == expected;
 }
 
 FreeEdgePartitionSplitSignatureCacheKey makeSplitSignatureCacheKey(const Key128& a,
@@ -656,14 +714,14 @@ bool tdiPrefixPruneEnabled() {
 
 int countCommonEdges(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end,
                      int stop_after = 1) {
-    if (T_init.original_nodes.empty() || T_end.original_nodes.empty()) {
+    if (T_init.original_inorder.empty() || T_end.original_inorder.empty()) {
         return 0;
     }
     int count = 0;
     try {
         const auto target_edges = buildTargetSet(T_end);
         const int threshold = std::max(1, stop_after);
-        for (int v : T_init.original_nodes) {
+        for (int v : T_init.original_inorder) {
             if (!T_init.isOriginal(v)) {
                 continue;
             }
@@ -788,7 +846,7 @@ bool tdsPartitionMinBudgetSearchEnabledForSize(const std::size_t n) {
     if (cached >= 0) {
         if (cached == 0) return false;
         if (cached == 1) return true;
-        return n >= 24;
+        return n >= 25;
     }
     const char* env = std::getenv("FLIPDIST_TDS_PARTITION_MIN_BUDGET_SEARCH");
     if (env && std::string(env) == "0") {
@@ -800,7 +858,7 @@ bool tdsPartitionMinBudgetSearchEnabledForSize(const std::size_t n) {
     }
     if (cached == 0) return false;
     if (cached == 1) return true;
-    return n >= 24;
+    return n >= 25;
 }
 
 bool tdsPartitionLowerFirstEnabled() {
@@ -936,7 +994,7 @@ bool shouldDisableEmptySFreeHintsForRootShape(const VectorRangeTreeMap& start,
     if (!emptySRootShapeFreeHintGateEnabled()) {
         return false;
     }
-    if (start.original_nodes.size() < 25 || target.original_nodes.size() < 25) {
+    if (start.original_inorder.size() < 25 || target.original_inorder.size() < 25) {
         return false;
     }
     auto cache_it = g_empty_s_free_hint_gate_cache.find(pair_key);
@@ -1031,11 +1089,11 @@ static std::vector<RP> collectCommonEdgesByTarget(
     const std::unordered_set<RP, RPH>& target_edges) {
     std::vector<RP> edges;
     try {
-        if (tree.original_nodes.empty() || target_edges.empty()) {
+        if (tree.original_inorder.empty() || target_edges.empty()) {
             return edges;
         }
-        edges.reserve(tree.original_nodes.size());
-        for (int v : tree.original_nodes) {
+        edges.reserve(tree.original_inorder.size());
+        for (int v : tree.original_inorder) {
             if (!tree.isOriginal(v)) {
                 continue;
             }
@@ -1068,7 +1126,7 @@ static std::vector<RP> collectCommonEdgesByTarget(
 bool tryCommonEdgeDecomposeAfterOneRotationEach(const VectorRangeTreeMap& T_start,
                                                const VectorRangeTreeMap& T_end,
                                                int k) {
-    if (k <= 0 || T_start.original_nodes.empty() || T_end.original_nodes.empty()) {
+    if (k <= 0 || T_start.original_inorder.empty() || T_end.original_inorder.empty()) {
         return false;
     }
 
@@ -1603,7 +1661,7 @@ int minKProbeStep(const VectorRangeTreeMap& tree) {
         env_cached = value;
         return env_cached;
     }
-    const int n = static_cast<int>(tree.original_nodes.size());
+    const int n = static_cast<int>(tree.original_inorder.size());
     if (n == 26 || n == 27) {
         return 12;
     }
@@ -1624,7 +1682,7 @@ int minKLinearPrefixProbes(const VectorRangeTreeMap& tree,
         env_cached = value;
         return env_cached;
     }
-    const int n = static_cast<int>(tree.original_nodes.size());
+    const int n = static_cast<int>(tree.original_inorder.size());
     if (n >= 25) {
         const EmptySShapeStats source = emptySShapeStats(tree);
         const EmptySShapeStats dest = emptySShapeStats(target);
@@ -1651,7 +1709,7 @@ int minKLinearAbortMs(const VectorRangeTreeMap& tree) {
         env_cached = value;
         return env_cached;
     }
-    const int n = static_cast<int>(tree.original_nodes.size());
+    const int n = static_cast<int>(tree.original_inorder.size());
     if (n == 26 || n == 27) {
         return 25;
     }
@@ -1687,28 +1745,34 @@ const TargetChildRangeSet& cachedTargetChildRanges(const VectorRangeTreeMap& tar
     auto target_it = g_target_child_range_cache.find(target_key);
     if (target_it == g_target_child_range_cache.end()) {
         TargetChildRangeSet built;
-        std::vector<std::pair<int, int>> ranges;
-        ranges.reserve(target.original_nodes.size() * 2 + 1);
         int max_endpoint = 0;
-        for (int v : target.original_nodes) {
+        bool has_ranges = false;
+        for (int v : target.original_inorder) {
             if (!target.isOriginal(v)) continue;
             for (int child : {target.getLeftChild(v), target.getRightChild(v)}) {
                 if (child >= 0 && target.isOriginal(child)) {
                     auto cr = target.getRange(child);
-                    ranges.push_back(cr);
                     max_endpoint = std::max(max_endpoint, std::max(cr.first, cr.second));
+                    has_ranges = true;
                 }
             }
         }
-        if (!ranges.empty()) {
+        if (has_ranges) {
             built.stride = max_endpoint + 1;
             built.present.assign(static_cast<std::size_t>(built.stride) *
                                      static_cast<std::size_t>(built.stride),
                                  0);
-            for (const auto& range : ranges) {
-                built.present[static_cast<std::size_t>(range.first) *
+            for (int v : target.original_inorder) {
+                if (!target.isOriginal(v)) continue;
+                for (int child : {target.getLeftChild(v), target.getRightChild(v)}) {
+                    if (child < 0 || !target.isOriginal(child)) {
+                        continue;
+                    }
+                    const auto range = target.getRange(child);
+                    built.present[static_cast<std::size_t>(range.first) *
                                   static_cast<std::size_t>(built.stride) +
-                              static_cast<std::size_t>(range.second)] = 1;
+                                  static_cast<std::size_t>(range.second)] = 1;
+                }
             }
         }
         target_it = g_target_child_range_cache.emplace(target_key, std::move(built)).first;
@@ -1724,8 +1788,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
         return {false, {-1, -1}};
     }
 
-    std::array<std::pair<int, int>, 64> current_child_ranges{};
-    int current_child_range_count = 0;
+    std::array<std::uint64_t, 64> current_child_range_bits;
     bool current_child_ranges_overflow = false;
     bool current_child_ranges_ready = false;
     const auto ensure_current_child_ranges = [&]() {
@@ -1733,20 +1796,29 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
             return;
         }
         current_child_ranges_ready = true;
-        for (int v : cur.original_nodes) {
+        current_child_range_bits.fill(0);
+        for (int v : cur.original_inorder) {
             if (!cur.isOriginal(v)) continue;
             const int left = cur.getLeftChild(v);
             const int right = cur.getRightChild(v);
             if (left >= 0 && cur.isOriginal(left)) {
-                if (current_child_range_count < static_cast<int>(current_child_ranges.size())) {
-                    current_child_ranges[current_child_range_count++] = cur.getRange(left);
+                const auto range = cur.getRange(left);
+                if (range.first >= 0 && range.second >= 0 &&
+                    range.first < static_cast<int>(current_child_range_bits.size()) &&
+                    range.second < 64) {
+                    current_child_range_bits[static_cast<std::size_t>(range.first)] |=
+                        (1ULL << static_cast<unsigned>(range.second));
                 } else {
                     current_child_ranges_overflow = true;
                 }
             }
             if (right >= 0 && cur.isOriginal(right)) {
-                if (current_child_range_count < static_cast<int>(current_child_ranges.size())) {
-                    current_child_ranges[current_child_range_count++] = cur.getRange(right);
+                const auto range = cur.getRange(right);
+                if (range.first >= 0 && range.second >= 0 &&
+                    range.first < static_cast<int>(current_child_range_bits.size()) &&
+                    range.second < 64) {
+                    current_child_range_bits[static_cast<std::size_t>(range.first)] |=
+                        (1ULL << static_cast<unsigned>(range.second));
                 } else {
                     current_child_ranges_overflow = true;
                 }
@@ -1755,19 +1827,21 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
     };
     const auto has_current_child_range = [&](const RP& edge) {
         ensure_current_child_ranges();
-        if (current_child_ranges_overflow) {
-            return hasEdgeByRange(cur, edge);
+        if (edge.cs >= 0 && edge.ce >= 0 &&
+            edge.cs < static_cast<int>(current_child_range_bits.size()) &&
+            edge.ce < 64 &&
+            (current_child_range_bits[static_cast<std::size_t>(edge.cs)] &
+             (1ULL << static_cast<unsigned>(edge.ce)))) {
+            return true;
         }
-        for (int i = 0; i < current_child_range_count; ++i) {
-            const auto& range = current_child_ranges[i];
-            if (range.first == edge.cs && range.second == edge.ce) {
-                return true;
-            }
-        }
-        return false;
+        return current_child_ranges_overflow ? hasEdgeByRange(cur, edge) : false;
     };
 
-    for (int v : cur.original_nodes) {
+    const auto isFreeCandidate = [&](const RP& edge) {
+        return target_edges.contains(edge.cs, edge.ce) && !has_current_child_range(edge);
+    };
+
+    for (int v : cur.original_inorder) {
         if (!cur.isOriginal(v)) continue;
 
         const int right_child = cur.getRightChild(v);
@@ -1783,7 +1857,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
                           parent_range.second,
                           new_child_range.first,
                           new_child_range.second};
-            if (target_edges.contains(edge.cs, edge.ce) && !has_current_child_range(edge)) {
+            if (isFreeCandidate(edge)) {
                 return {true, {v, right_child}};
             }
         }
@@ -1801,7 +1875,7 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
                           parent_range.second,
                           new_child_range.first,
                           new_child_range.second};
-            if (target_edges.contains(edge.cs, edge.ce) && !has_current_child_range(edge)) {
+            if (isFreeCandidate(edge)) {
                 return {true, {v, left_child}};
             }
         }
@@ -1821,17 +1895,21 @@ int collectOutgoingRangeEdgesForNodes(const VectorRangeTreeMap& tree,
                                       const int first_node,
                                       const int second_node,
                                       std::array<RP, 4>& out) {
-    int count = 0;
-    const auto add_node = [&](const int node) {
-        if (node < 0 || !tree.isOriginal(node)) return;
-        auto pr = tree.getRange(node);
-        for (int child : {tree.getLeftChild(node), tree.getRightChild(node)}) {
-            if (child >= 0 && tree.isOriginal(child) && count < static_cast<int>(out.size())) {
-                auto cr = tree.getRange(child);
-                out[count++] = RP{pr.first, pr.second, cr.first, cr.second};
-            }
-        }
-    };
+	    int count = 0;
+	    const auto add_node = [&](const int node) {
+	        if (node < 0 || !tree.isOriginal(node)) return;
+	        auto pr = tree.getRange(node);
+	        const int left = tree.getLeftChild(node);
+	        if (left >= 0 && tree.isOriginal(left) && count < static_cast<int>(out.size())) {
+	            auto cr = tree.getRange(left);
+	            out[count++] = RP{pr.first, pr.second, cr.first, cr.second};
+	        }
+	        const int right = tree.getRightChild(node);
+	        if (right >= 0 && tree.isOriginal(right) && count < static_cast<int>(out.size())) {
+	            auto cr = tree.getRange(right);
+	            out[count++] = RP{pr.first, pr.second, cr.first, cr.second};
+	        }
+	    };
     add_node(first_node);
     if (second_node != first_node) {
         add_node(second_node);
@@ -1879,12 +1957,18 @@ int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
         const auto& target_edges = cachedTargetChildRanges(target);
         for (int v : start.original_inorder) {
             if (!start.isOriginal(v)) continue;
-            for (int c : {start.getLeftChild(v), start.getRightChild(v)}) {
-                if (c >= 0 && start.isOriginal(c)) {
-                    auto cr = start.getRange(c);
-                    if (!target_edges.contains(cr.first, cr.second)) {
-                        ++value;
-                    }
+            const int left = start.getLeftChild(v);
+            if (left >= 0 && start.isOriginal(left)) {
+                auto cr = start.getRange(left);
+                if (!target_edges.contains(cr.first, cr.second)) {
+                    ++value;
+                }
+            }
+            const int right = start.getRightChild(v);
+            if (right >= 0 && start.isOriginal(right)) {
+                auto cr = start.getRange(right);
+                if (!target_edges.contains(cr.first, cr.second)) {
+                    ++value;
                 }
             }
         }
@@ -1940,7 +2024,7 @@ int exactDistanceSmallSubproblem(const VectorRangeTreeMap& start,
     std::queue<std::pair<VectorRangeTreeMap, int>> q;
     std::unordered_set<Key128, Key128Hash> visited;
     VectorRangeTreeMap start_copy = safeCopyTree(start);
-    if (start_copy.original_nodes.empty()) {
+    if (start_copy.original_inorder.empty()) {
         return std::numeric_limits<int>::max() / 4;
     }
     q.push({start_copy, 0});
@@ -1953,7 +2037,7 @@ int exactDistanceSmallSubproblem(const VectorRangeTreeMap& start,
         auto edges = getInternalEdges(cur);
         for (const auto& edge : edges) {
             VectorRangeTreeMap next = safeCopyTree(cur);
-            if (next.original_nodes.empty()) continue;
+            if (next.original_inorder.empty()) continue;
             if (!applyRotationOnEdge(next, edge)) continue;
             Key128 next_key = makeKeyPair(next, next);
             if (!visited.insert(next_key).second) continue;
@@ -1976,7 +2060,7 @@ int localNoPathLowerBound(const VectorRangeTreeMap& start,
     std::queue<std::pair<VectorRangeTreeMap, int>> q;
     std::unordered_set<Key128, Key128Hash> visited;
     VectorRangeTreeMap start_copy = safeCopyTree(start);
-    if (start_copy.original_nodes.empty()) {
+    if (start_copy.original_inorder.empty()) {
         return 0;
     }
     q.push({start_copy, 0});
@@ -1992,7 +2076,7 @@ int localNoPathLowerBound(const VectorRangeTreeMap& start,
         auto edges = getInternalEdges(cur);
         for (const auto& edge : edges) {
             VectorRangeTreeMap next = safeCopyTree(cur);
-            if (next.original_nodes.empty()) continue;
+            if (next.original_inorder.empty()) continue;
             if (!applyRotationOnEdge(next, edge)) continue;
             Key128 next_key = makeKeyPair(next, next);
             if (!visited.insert(next_key).second) continue;
@@ -2160,7 +2244,7 @@ bool evaluateRotationHeuristic(const VectorRangeTreeMap& start,
         return false;
     }
     VectorRangeTreeMap probe = safeCopyTree(start);
-    if (probe.original_nodes.empty()) {
+    if (probe.original_inorder.empty()) {
         return false;
     }
     if (probe.getLeftChild(parent) == child) {
@@ -2545,7 +2629,7 @@ int branchyCoreExactM() {
 
 std::string classifyTreeMotif(const VectorRangeTreeMap& tree) {
     int branching_nodes = 0;
-    for (int node : tree.original_nodes) {
+    for (int node : tree.original_inorder) {
         if (!tree.isOriginal(node)) continue;
         int child_count = 0;
         if (tree.getLeftChild(node) >= 0 && tree.isOriginal(tree.getLeftChild(node))) child_count++;
@@ -2584,7 +2668,7 @@ std::string coreSignatureForPair(const VectorRangeTreeMap& start,
 bool collectBestCommonEdgeCoreSplit(const VectorRangeTreeMap& start,
                                     const VectorRangeTreeMap& target,
                                     CoreDecompositionCandidate& best_out) {
-    if (start.original_nodes.empty() || target.original_nodes.empty()) {
+    if (start.original_inorder.empty() || target.original_inorder.empty()) {
         return false;
     }
 
@@ -2592,7 +2676,7 @@ bool collectBestCommonEdgeCoreSplit(const VectorRangeTreeMap& start,
     bool found = false;
     CoreDecompositionCandidate best;
 
-    for (int parent : start.original_nodes) {
+    for (int parent : start.original_inorder) {
         if (!start.isOriginal(parent)) continue;
         auto parent_range = start.getRange(parent);
         for (int child : {start.getLeftChild(parent), start.getRightChild(parent)}) {
@@ -2605,7 +2689,7 @@ bool collectBestCommonEdgeCoreSplit(const VectorRangeTreeMap& start,
 
             auto [A1, A2] = VectorRangeTreeMap::partitionAlongEdge(start, parent_range, child_range);
             auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(target, parent_range, child_range);
-            if (A1.original_nodes != B1.original_nodes || A2.original_nodes != B2.original_nodes) {
+            if (A1.original_inorder != B1.original_inorder || A2.original_inorder != B2.original_inorder) {
                 continue;
             }
 
@@ -2649,7 +2733,7 @@ bool tryFreeEdgeCoreReduction(const VectorRangeTreeMap& start,
     }
 
     VectorRangeTreeMap rotated = safeCopyTree(start);
-    if (rotated.original_nodes.empty()) {
+    if (rotated.original_inorder.empty()) {
         return false;
     }
 
@@ -2685,8 +2769,8 @@ bool tryFreeEdgeCoreReduction(const VectorRangeTreeMap& start,
         VectorRangeTreeMap::partitionAlongEdge(rotated, parent_range, child_range);
     auto [left_target, right_target] =
         VectorRangeTreeMap::partitionAlongEdge(target, parent_range, child_range);
-    if (left_start.original_nodes != left_target.original_nodes ||
-        right_start.original_nodes != right_target.original_nodes) {
+    if (left_start.original_inorder != left_target.original_inorder ||
+        right_start.original_inorder != right_target.original_inorder) {
         out.valid = false;
         return false;
     }
@@ -2878,8 +2962,8 @@ void maybeUpdateBestBranchyCandidate(const VectorRangeTreeMap& peeled_start,
                                      int current_edges,
                                      bool& found,
                                      BranchyPeelCandidate& best) {
-    if (peeled_start.original_nodes != peeled_target.original_nodes ||
-        residual_start.original_nodes != residual_target.original_nodes) {
+    if (peeled_start.original_inorder != peeled_target.original_inorder ||
+        residual_start.original_inorder != residual_target.original_inorder) {
         return;
     }
     const int peeled_edges = countInternalEdges(peeled_start);
@@ -2920,7 +3004,7 @@ bool collectBestBranchyPeelCandidate(const VectorRangeTreeMap& start,
     const int current_edges = countInternalEdges(start);
     auto target_edges = buildTargetSet(target);
 
-    for (int parent : start.original_nodes) {
+    for (int parent : start.original_inorder) {
         if (!start.isOriginal(parent)) continue;
         auto parent_range = start.getRange(parent);
         for (int child : {start.getLeftChild(parent), start.getRightChild(parent)}) {
@@ -2933,7 +3017,7 @@ bool collectBestBranchyPeelCandidate(const VectorRangeTreeMap& start,
 
             auto [A1, A2] = VectorRangeTreeMap::partitionAlongEdge(start, parent_range, child_range);
             auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(target, parent_range, child_range);
-            if (A1.original_nodes != B1.original_nodes || A2.original_nodes != B2.original_nodes) {
+            if (A1.original_inorder != B1.original_inorder || A2.original_inorder != B2.original_inorder) {
                 continue;
             }
 
@@ -2984,7 +3068,7 @@ BranchyCoreSummary analyzeBranchyCoreSummary(const VectorRangeTreeMap& start,
     BranchyCoreSummary summary;
     VectorRangeTreeMap cur_start = safeCopyTree(start);
     VectorRangeTreeMap cur_target = safeCopyTree(target);
-    if (cur_start.original_nodes.empty() || cur_target.original_nodes.empty()) {
+    if (cur_start.original_inorder.empty() || cur_target.original_inorder.empty()) {
         summary.residual_edges = 0;
         summary.residual_signature = coreSignatureForPair(start, target, "empty");
         g_branchy_core_summary_cache.emplace(summary_key, summary);
@@ -3062,7 +3146,7 @@ Key128 emptySMotifSummaryKey(const VectorRangeTreeMap& start,
 
 TreeStructureProfile describeTreeStructure(const VectorRangeTreeMap& tree) {
     TreeStructureProfile profile;
-    if (tree.root < 0 || !tree.isOriginal(tree.root) || tree.original_nodes.empty()) {
+    if (tree.root < 0 || !tree.isOriginal(tree.root) || tree.original_inorder.empty()) {
         profile.motif = "empty";
         return profile;
     }
@@ -3154,8 +3238,8 @@ void maybeAppendMotifPeelLayout(const VectorRangeTreeMap& peeled_start,
                                 int motif_m,
                                 std::unordered_set<Key128, Key128Hash>& seen_residuals,
                                 std::vector<MotifPeelLayout>& out) {
-    if (peeled_start.original_nodes != peeled_target.original_nodes ||
-        residual_start.original_nodes != residual_target.original_nodes) {
+    if (peeled_start.original_inorder != peeled_target.original_inorder ||
+        residual_start.original_inorder != residual_target.original_inorder) {
         return;
     }
 
@@ -3196,12 +3280,12 @@ void collectCommonEdgeMotifLayouts(const VectorRangeTreeMap& start,
                                    int motif_m,
                                    std::unordered_set<Key128, Key128Hash>& seen_residuals,
                                    std::vector<MotifPeelLayout>& out) {
-    if (start.original_nodes.empty() || target.original_nodes.empty()) {
+    if (start.original_inorder.empty() || target.original_inorder.empty()) {
         return;
     }
 
     auto target_edges = buildTargetSet(target);
-    for (int parent : start.original_nodes) {
+    for (int parent : start.original_inorder) {
         if (!start.isOriginal(parent)) continue;
         auto parent_range = start.getRange(parent);
         for (int child : {start.getLeftChild(parent), start.getRightChild(parent)}) {
@@ -3214,7 +3298,7 @@ void collectCommonEdgeMotifLayouts(const VectorRangeTreeMap& start,
 
             auto [A1, A2] = VectorRangeTreeMap::partitionAlongEdge(start, parent_range, child_range);
             auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(target, parent_range, child_range);
-            if (A1.original_nodes != B1.original_nodes || A2.original_nodes != B2.original_nodes) {
+            if (A1.original_inorder != B1.original_inorder || A2.original_inorder != B2.original_inorder) {
                 continue;
             }
 
@@ -3311,7 +3395,7 @@ bool tryArticulationArmReduction(const VectorRangeTreeMap& start,
                                  ArticulationArmReduction& out) {
     out = ArticulationArmReduction{};
     const int arm_m = articulationArmMaxEdges();
-    if (arm_m <= 0 || start.original_nodes.empty() || target.original_nodes.empty()) {
+    if (arm_m <= 0 || start.original_inorder.empty() || target.original_inorder.empty()) {
         return false;
     }
 
@@ -3664,6 +3748,12 @@ struct InflightBudgetGuard {
 
 } // namespace
 
+static bool TreeDistSImpl(const VectorRangeTreeMap& T_init,
+                          const VectorRangeTreeMap& T_end,
+                          int k,
+                          const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S,
+                          const EmptySKeys* precomputed_empty_keys);
+
 // Definition: Decide if rotation distance <= k via Li–Xia branching
 // Parameters: T_init: source tree; T_final: target tree; k: budget
 // Returns: true if a sequence of <= k rotations exists, else false
@@ -3674,7 +3764,9 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
         g_profile.calls_flipdist++;
     }
     ScopedTimer _t(g_profile.enabled ? &g_profile.time_flipdist_ms : nullptr);
-    throwIfProfileAbort();
+    if (g_profile.enabled && g_profile.abort_ms > 0) {
+        throwIfProfileAbort();
+    }
     debugPrint("Entering FlipDistTree with k=" + std::to_string(k));
 
     const Key128 memo_key = makeKeyFlip(T_init, T_final, k);
@@ -3737,7 +3829,8 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
     auto [hasFree, freeEdge] = cachedFindFreeEdge(T_init, T_final);
     if (hasFree) {
         debugPrint("FlipDistTree: free edge found, delegating to TreeDistS");
-        return memoReturn(TreeDistS(T_init, T_final, k, {}));
+        static const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> empty_s_for_tds;
+        return memoReturn(TreeDistSImpl(T_init, T_final, k, empty_s_for_tds, nullptr));
     }
 
     debugPrint("FlipDistTree: budget k=" + std::to_string(k));
@@ -3800,7 +3893,9 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
         }
     }
     ScopedTimer _t(g_profile.enabled ? &g_profile.time_tdi_ms : nullptr);
-    throwIfProfileAbort();
+    if (g_profile.enabled && g_profile.abort_ms > 0) {
+        throwIfProfileAbort();
+    }
     debugPrint("Entering TreeDistI with k=" + std::to_string(k) + ", |I|=" + std::to_string(I.size()));
 
     const Key128 memo_key = makeKeyI(T_init, T_final, k, I);
@@ -3818,13 +3913,13 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
     }
 
     auto inflight_it = g_tdi_inflight_best_budget.find(bounds_key);
+    InflightBudgetGuard inflight_guard;
     if (tdiInflightPruningEnabled()) {
         if (inflight_it != g_tdi_inflight_best_budget.end() && inflight_it->second >= k) {
             if (g_profile.enabled) g_profile.dominance_prunes++;
             g_memo_tdi[memo_key] = false;
             return false;
         }
-        InflightBudgetGuard inflight_guard;
         inflight_guard.map = &g_tdi_inflight_best_budget;
         inflight_guard.key = bounds_key;
         if (inflight_it != g_tdi_inflight_best_budget.end()) {
@@ -3836,9 +3931,6 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
         } else {
             g_tdi_inflight_best_budget[bounds_key] = k;
         }
-    } else {
-        InflightBudgetGuard inflight_guard;
-        (void)inflight_guard;
     }
 
     auto memoReturn = [&](bool value) {
@@ -3919,7 +4011,7 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
     int applied_rotations = 0;
 
     VectorRangeTreeMap T_bar = safeCopyTree(T_init);  // T̄_init from pseudocode
-    if (T_bar.original_nodes.empty()) {
+    if (T_bar.original_inorder.empty()) {
         debugPrint("TreeDistI: Failed to copy tree");
         return memoReturn(false);
     }
@@ -4046,7 +4138,10 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
             g_profile.tdi_post_i_nonempty_s++;
         }
     }
-    bool tds_ok = TreeDistS(T_bar, T_final, k - (int)I.size(), S);
+    if (!refreshOriginalPreorderInPlace(T_bar)) {
+        return memoReturn(false);
+    }
+    bool tds_ok = TreeDistSImpl(T_bar, T_final, k - (int)I.size(), S, nullptr);
     if (g_profile.enabled) {
         if (tds_ok) g_profile.tdi_tds_success++;
         else g_profile.tdi_tds_fail++;
@@ -4058,17 +4153,19 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
 // Parameters: T_init/T_end: trees; k: budget; S: edge-pair set
 // Returns: true if solvable within k, else false
 // Errors: returns false on invalid inputs or internal failures
-bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
-               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
-    initProfile();
-    if (g_profile.enabled) {
-        g_profile.calls_tds++;
+static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
+	               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S,
+	               const EmptySKeys* precomputed_empty_keys) {
+	    if (g_profile.enabled) {
+	        g_profile.calls_tds++;
         if ((long long)S.size() > g_profile.max_s_size) {
             g_profile.max_s_size = (long long)S.size();
         }
     }
     ScopedTimer _t(g_profile.enabled ? &g_profile.time_tds_ms : nullptr);
-    throwIfProfileAbort();
+	    if (g_profile.enabled && g_profile.abort_ms > 0) {
+	        throwIfProfileAbort();
+	    }
     std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> S_norm;
     if (!S.empty()) {
         S_norm = S;
@@ -4077,10 +4174,23 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
     debugPrint("Entering TreeDistS with k=" + std::to_string(k) + ", |S|=" + std::to_string(S_norm.size()));
 
     const bool s_norm_empty = S_norm.empty();
-    const EmptySKeys entry_empty_keys = s_norm_empty ? makeEmptySKeys(T_init, T_end, k) : EmptySKeys{};
-    const Key128 memo_key = s_norm_empty ? entry_empty_keys.exact_key : makeKeyS(T_init, T_end, k, S_norm);
-    const Key128 pair_key = s_norm_empty ? entry_empty_keys.pair_key : makeKeyPair(T_init, T_end);
-    const Key128 bounds_key = s_norm_empty ? entry_empty_keys.bounds_key : makeKeySBase(T_init, T_end, S_norm);
+	    EmptySKeys entry_empty_keys{};
+	    if (s_norm_empty) {
+	        entry_empty_keys = precomputed_empty_keys ? *precomputed_empty_keys
+	                                                  : makeEmptySKeys(T_init, T_end, k);
+	    }
+		    const Key128 memo_key = s_norm_empty ? entry_empty_keys.exact_key : makeKeyS(T_init, T_end, k, S_norm);
+		    const Key128 pair_key = s_norm_empty ? entry_empty_keys.pair_key : makeKeyPair(T_init, T_end);
+		    const Key128 bounds_key = s_norm_empty ? entry_empty_keys.bounds_key : makeKeySBase(T_init, T_end, S_norm);
+    Key128 target_self_key{};
+    bool target_self_key_ready = false;
+    const auto getTargetSelfKey = [&]() -> const Key128& {
+        if (!target_self_key_ready) {
+            target_self_key = makeKeyPair(T_end, T_end);
+            target_self_key_ready = true;
+        }
+        return target_self_key;
+    };
 #if FLIPDIST_REUSE_PROFILE_COUNTERS
     if (g_profile.enabled) [[unlikely]] {
         recordProfileTreeDistSState(bounds_key, s_norm_empty);
@@ -4114,29 +4224,33 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         return bounds_value;
     }
     bool pair_known_value = false;
-    if (tryBoundsPrune(g_kbounds, pair_key, k, pair_known_value)) {
-        if (!pair_known_value) {
-            g_memo_tds[memo_key] = false;
-            updateBounds(g_tds_bounds, bounds_key, k, false);
-            return false;
+	    if (tryBoundsPrune(g_kbounds, pair_key, k, pair_known_value)) {
+	        if (!pair_known_value) {
+	            g_memo_tds[memo_key] = false;
+	            updateBounds(g_tds_bounds, bounds_key, k, false);
+	            return false;
         }
         if (s_norm_empty) {
             g_memo_tds[memo_key] = true;
             updateBounds(g_tds_bounds, bounds_key, k, true);
             updatePairIncumbentUpper(pair_key, k);
-            return true;
-        }
-    }
+	            return true;
+	        }
+	    }
 
-    auto inflight_it = g_tds_inflight_best_budget.find(bounds_key);
-    if (tdsInflightPruningEnabled() && inflight_it != g_tds_inflight_best_budget.end() && inflight_it->second >= k) {
-        if (g_profile.enabled) g_profile.dominance_prunes++;
-        g_memo_tds[memo_key] = false;
-        return false;
-    }
-    InflightBudgetGuard inflight_guard;
-    if (tdsInflightPruningEnabled()) {
-        inflight_guard.map = &g_tds_inflight_best_budget;
+	    const bool use_tds_inflight = tdsInflightPruningEnabled();
+	    auto inflight_it = g_tds_inflight_best_budget.end();
+	    if (use_tds_inflight) {
+	        inflight_it = g_tds_inflight_best_budget.find(bounds_key);
+	        if (inflight_it != g_tds_inflight_best_budget.end() && inflight_it->second >= k) {
+	            if (g_profile.enabled) g_profile.dominance_prunes++;
+	            g_memo_tds[memo_key] = false;
+	            return false;
+	        }
+	    }
+	    InflightBudgetGuard inflight_guard;
+	    if (use_tds_inflight) {
+	        inflight_guard.map = &g_tds_inflight_best_budget;
         inflight_guard.key = bounds_key;
         if (inflight_it != g_tds_inflight_best_budget.end()) {
             inflight_guard.had_prev = true;
@@ -4151,21 +4265,21 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
     auto memoReturn = [&](bool value) {
         g_memo_tds[memo_key] = value;
-        updateBounds(g_tds_bounds, bounds_key, k, value);
-        if (s_norm_empty) {
-            updateBounds(g_kbounds, pair_key, k, value);
-        }
-        if (value) {
-            updatePairIncumbentUpper(pair_key, k);
-        }
-        return value;
-    };
+	        updateBounds(g_tds_bounds, bounds_key, k, value);
+		        if (s_norm_empty) {
+		            updateBounds(g_kbounds, pair_key, k, value);
+		        }
+		        if (value) {
+		            updatePairIncumbentUpper(pair_key, k);
+		        }
+		        return value;
+		    };
 
     if (k < 0) {
         debugPrint("TreeDistS: Negative budget");
         return memoReturn(false);
     }
-    int conflict_lb = cachedConflictCountWithKey(T_init, T_end, pair_key);
+	    int conflict_lb = cachedConflictCountWithKey(T_init, T_end, pair_key);
     if (conflict_lb > k) {
         return memoReturn(false);
     }
@@ -4178,12 +4292,12 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         return memoReturn(false);
     }
 
-    if (s_norm_empty && pairIncumbentUpper(pair_key) <= k) {
-        return memoReturn(true);
-    }
+	    if (s_norm_empty && pairIncumbentUpper(pair_key) <= k) {
+	        return memoReturn(true);
+	    }
 
-    int lower_bound = (s_norm_empty && defaultEmptySBoundConfig())
-                          ? emptySLowerBoundFromKeys(conflict_lb, pair_key, bounds_key)
+	    int lower_bound = (s_norm_empty && defaultEmptySBoundConfig())
+	                          ? emptySLowerBoundFromKeys(conflict_lb, pair_key, bounds_key)
                           : combinedLowerBoundS(T_init, T_end, S_norm, conflict_lb);
     if (lower_bound > k) {
         return memoReturn(false);
@@ -4193,7 +4307,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         return memoReturn(false);
     }
 
-    VectorRangeTreeMap T_work = safeCopyTree(T_init);
+    VectorRangeTreeMap T_work = treeDistSWorkCopy(T_init);
     int k_work = k;
     std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> S_work = S_norm;
     struct UnfoldedStateMemoEntry {
@@ -4204,6 +4318,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         bool empty_s = false;
     };
     std::vector<UnfoldedStateMemoEntry> unfolded_bounds_entries;
+    unfolded_bounds_entries.reserve(static_cast<std::size_t>(std::min(std::max(k, 0), 16)));
 
     auto commitResult = [&](bool value) {
         for (const auto& entry : unfolded_bounds_entries) {
@@ -4216,12 +4331,17 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         return memoReturn(value);
     };
 
-    Key128 work_pair_key{};
-    while (k_work > 0) {
+	    Key128 work_pair_key{};
+	    bool first_unfolded_state = true;
+	    while (k_work > 0) {
         EmptySKeys work_empty_keys{};
         const bool s_work_empty = S_work.empty();
         if (s_work_empty) {
-            work_empty_keys = makeEmptySKeys(T_work, T_end, k_work);
+            if (first_unfolded_state && precomputed_empty_keys && k_work == k) {
+                work_empty_keys = entry_empty_keys;
+            } else {
+                work_empty_keys = makeEmptySKeys(T_work, T_end, k_work);
+            }
             work_pair_key = work_empty_keys.pair_key;
         } else {
             work_pair_key = makeKeyPair(T_work, T_end);
@@ -4229,10 +4349,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
         if (s_work_empty && pairIncumbentUpper(work_pair_key) <= k_work) {
             return commitResult(true);
         }
-
-        int work_conflict_lb = cachedConflictCountWithKey(T_work, T_end, work_pair_key);
-        int work_lb = (s_work_empty && defaultEmptySBoundConfig())
-                          ? emptySLowerBoundFromKeys(work_conflict_lb,
+	        int work_conflict_lb = cachedConflictCountWithKey(T_work, T_end, work_pair_key);
+	        int work_lb = (s_work_empty && defaultEmptySBoundConfig())
+	                          ? emptySLowerBoundFromKeys(work_conflict_lb,
                                                      work_pair_key,
                                                      work_empty_keys.bounds_key)
                           : combinedLowerBoundS(T_work, T_end, S_work, work_conflict_lb);
@@ -4262,6 +4381,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             work_pair_key,
             k_work,
             s_work_empty});
+        first_unfolded_state = false;
 
         const bool partition_cache_enabled = tdsPartitionCacheEnabled();
 
@@ -4280,7 +4400,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             int parent = freeEdge.first;
             int child = freeEdge.second;
 
-            std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> S_filtered;
+            thread_local std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> s_filtered_scratch;
+            auto& S_filtered = s_filtered_scratch;
+            S_filtered.clear();
             {
                 ScopedTimer _tfilter(g_profile.enabled ? &g_profile.time_tds_free_filter_ms : nullptr);
                 S_filtered.reserve(S_work.size() + 2);
@@ -4292,9 +4414,6 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             }
             debugPrint("TreeDistS: Filtered S from " + std::to_string(S_work.size()) + " to " + std::to_string(S_filtered.size()) + " pairs");
 
-            if (!refreshOriginalPreorderInPlace(T_work)) {
-                return commitResult(false);
-            }
             VectorRangeTreeMap& T_bar = T_work;
             int u, v;
 
@@ -4313,9 +4432,12 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 }
             }
 
-            if (TreesEqual(T_bar, T_end)) {
+            if (work_conflict_lb <= 4 && TreesEqual(T_bar, T_end)) {
                 debugPrint("TreeDistS: Solved with free edge rotation");
                 return commitResult(true);
+            }
+            if (!refreshOriginalPreorderInPlace(T_bar)) {
+                return commitResult(false);
             }
 
             auto cr = T_bar.getRange(v);
@@ -4390,40 +4512,40 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             g_profile.partition_precheck_mismatches++;
                         }
                     }
-                    if (!partition_structure_cache.precheck_ok) {
-                        partition_structure_cache.computed = true;
-                    } else {
-                        ScopedTimer _tbuild(g_profile.enabled ? &g_profile.time_partition_build_ms : nullptr);
-                            std::tie(partition_structure_cache.T_bar1, partition_structure_cache.T_bar2) =
-                                VectorRangeTreeMap::partitionAlongSubtreeRange(T_bar,
-                                                                               partition_child_range);
-                        const TargetPartitionRangeCacheKey target_partition_key{
-                            makeKeyPair(T_end, T_end),
-                            static_cast<std::uint32_t>(partition_child_range.first),
-                            static_cast<std::uint32_t>(partition_child_range.second)};
+	                    if (!partition_structure_cache.precheck_ok) {
+	                        partition_structure_cache.computed = true;
+	                    } else {
+	                        ScopedTimer _tbuild(g_profile.enabled ? &g_profile.time_partition_build_ms : nullptr);
+	                            std::tie(partition_structure_cache.T_bar1, partition_structure_cache.T_bar2) =
+	                                VectorRangeTreeMap::partitionAlongSubtreeRange(T_bar,
+	                                                                               partition_child_range);
+	                        const TargetPartitionRangeCacheKey target_partition_key{
+	                            getTargetSelfKey(),
+	                            static_cast<std::uint32_t>(partition_child_range.first),
+	                            static_cast<std::uint32_t>(partition_child_range.second)};
                         auto& target_partition_entry = g_target_partition_range_cache
                             .try_emplace(target_partition_key, TargetPartitionRangeCacheEntry{})
                             .first->second;
-                        if (!target_partition_entry.computed) {
-                            std::tie(target_partition_entry.T_end1, target_partition_entry.T_end2) =
-                                VectorRangeTreeMap::partitionAlongEdge(T_end,
-                                                                       partition_parent_range,
-                                                                       partition_child_range);
-                            target_partition_entry.computed = true;
-                        }
+	                        if (!target_partition_entry.computed) {
+	                            std::tie(target_partition_entry.T_end1, target_partition_entry.T_end2) =
+	                                VectorRangeTreeMap::partitionAlongEdge(T_end,
+	                                                                       partition_parent_range,
+	                                                                       partition_child_range);
+	                            target_partition_entry.computed = true;
+	                        }
                         partition_structure_cache.T_end1_ptr = &target_partition_entry.T_end1;
                         partition_structure_cache.T_end2_ptr = &target_partition_entry.T_end2;
 
-                        if (partition_structure_cache.T_bar1.original_nodes != target_partition_entry.T_end1.original_nodes ||
-                            partition_structure_cache.T_bar2.original_nodes != target_partition_entry.T_end2.original_nodes) {
-                            partition_structure_cache.partition_nodes_match = false;
-                        } else {
-                            ScopedTimer _tedges(g_profile.enabled ? &g_profile.time_partition_count_edges_ms : nullptr);
-                            partition_structure_cache.n1 = countInternalEdges(partition_structure_cache.T_bar1);
-                            partition_structure_cache.n2 = countInternalEdges(partition_structure_cache.T_bar2);
-                        }
-                        partition_structure_cache.computed = true;
-                    }
+	                        if (partition_structure_cache.T_bar1.original_inorder != target_partition_entry.T_end1.original_inorder ||
+	                            partition_structure_cache.T_bar2.original_inorder != target_partition_entry.T_end2.original_inorder) {
+	                            partition_structure_cache.partition_nodes_match = false;
+	                        } else {
+	                            ScopedTimer _tedges(g_profile.enabled ? &g_profile.time_partition_count_edges_ms : nullptr);
+	                            partition_structure_cache.n1 = countInternalEdges(partition_structure_cache.T_bar1);
+	                            partition_structure_cache.n2 = countInternalEdges(partition_structure_cache.T_bar2);
+	                        }
+	                        partition_structure_cache.computed = true;
+	                    }
                 } catch (const SearchAbortException&) {
                     throw;
                 } catch (...) {
@@ -4540,26 +4662,62 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                         partition_cache.S1 = std::move(side_pairs_left);
                         partition_cache.S2 = std::move(side_pairs_right);
                     }
-                    {
-                        ScopedTimer _tconf(g_profile.enabled ? &g_profile.time_partition_conflicts_ms : nullptr);
-                        partition_cache.conf1 = cachedConflictCount(partition_structure_cache.T_bar1,
-                                                                  partition_structure_cache.T_end1);
-                        partition_cache.conf2 = cachedConflictCount(partition_structure_cache.T_bar2,
-                                                                  partition_structure_cache.T_end2);
-                    }
-                    {
-                        ScopedTimer _tbounds(g_profile.enabled ? &g_profile.time_partition_bounds_ms : nullptr);
-                        partition_cache.s1_pair_key = makeKeyPair(partition_structure_cache.T_bar1,
-                                                                 partition_structure_cache.T_end1);
-                        partition_cache.s2_pair_key = makeKeyPair(partition_structure_cache.T_bar2,
-                                                                 partition_structure_cache.T_end2);
-                        partition_cache.s1_bounds_key = makeKeySBase(partition_structure_cache.T_bar1,
-                                                                     partition_structure_cache.T_end1,
-                                                                     partition_cache.S1);
-                        partition_cache.s2_bounds_key = makeKeySBase(partition_structure_cache.T_bar2,
-                                                                     partition_structure_cache.T_end2,
-                                                                     partition_cache.S2);
-                    }
+		                    {
+		                        ScopedTimer _tbounds(g_profile.enabled ? &g_profile.time_partition_bounds_ms : nullptr);
+		                        const VectorRangeTreeMap& side_end1 =
+		                            partition_structure_cache.T_end1_ptr
+		                                ? *partition_structure_cache.T_end1_ptr
+		                                : partition_structure_cache.T_end1;
+		                        const VectorRangeTreeMap& side_end2 =
+		                            partition_structure_cache.T_end2_ptr
+		                                ? *partition_structure_cache.T_end2_ptr
+		                                : partition_structure_cache.T_end2;
+		                        if (partition_cache.S1.empty()) {
+		                            const EmptySKeys keys =
+		                                makeEmptySKeys(partition_structure_cache.T_bar1, side_end1, 0);
+		                            partition_cache.s1_pair_key = keys.pair_key;
+		                            partition_cache.s1_bounds_key = keys.bounds_key;
+		                            partition_cache.s1_exact_base_key = keys.exact_base_key;
+		                        } else {
+		                            partition_cache.s1_pair_key =
+		                                makeKeyPair(partition_structure_cache.T_bar1, side_end1);
+		                            partition_cache.s1_bounds_key =
+		                                makeKeySBase(partition_structure_cache.T_bar1,
+		                                             side_end1,
+		                                             partition_cache.S1);
+		                        }
+		                        if (partition_cache.S2.empty()) {
+		                            const EmptySKeys keys =
+		                                makeEmptySKeys(partition_structure_cache.T_bar2, side_end2, 0);
+		                            partition_cache.s2_pair_key = keys.pair_key;
+		                            partition_cache.s2_bounds_key = keys.bounds_key;
+		                            partition_cache.s2_exact_base_key = keys.exact_base_key;
+		                        } else {
+		                            partition_cache.s2_pair_key =
+		                                makeKeyPair(partition_structure_cache.T_bar2, side_end2);
+		                            partition_cache.s2_bounds_key =
+		                                makeKeySBase(partition_structure_cache.T_bar2,
+		                                             side_end2,
+		                                             partition_cache.S2);
+		                        }
+		                    }
+	                    {
+	                        ScopedTimer _tconf(g_profile.enabled ? &g_profile.time_partition_conflicts_ms : nullptr);
+	                        const VectorRangeTreeMap& side_end1 =
+	                            partition_structure_cache.T_end1_ptr
+	                                ? *partition_structure_cache.T_end1_ptr
+	                                : partition_structure_cache.T_end1;
+	                        const VectorRangeTreeMap& side_end2 =
+	                            partition_structure_cache.T_end2_ptr
+	                                ? *partition_structure_cache.T_end2_ptr
+	                                : partition_structure_cache.T_end2;
+	                        partition_cache.conf1 = cachedConflictCountWithKey(partition_structure_cache.T_bar1,
+	                                                                         side_end1,
+	                                                                         partition_cache.s1_pair_key);
+	                        partition_cache.conf2 = cachedConflictCountWithKey(partition_structure_cache.T_bar2,
+	                                                                         side_end2,
+	                                                                         partition_cache.s2_pair_key);
+		                    }
                     partition_cache.computed = true;
                 } catch (const SearchAbortException&) {
                     throw;
@@ -4577,10 +4735,12 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             const bool snapshot_side_exception = partition_cache.had_exception;
             const int snapshot_conf1 = partition_cache.conf1;
             const int snapshot_conf2 = partition_cache.conf2;
-            const Key128 snapshot_s1_bounds_key = partition_cache.s1_bounds_key;
-            const Key128 snapshot_s2_bounds_key = partition_cache.s2_bounds_key;
-            const Key128 snapshot_s1_pair_key = partition_cache.s1_pair_key;
-            const Key128 snapshot_s2_pair_key = partition_cache.s2_pair_key;
+	            const Key128 snapshot_s1_bounds_key = partition_cache.s1_bounds_key;
+	            const Key128 snapshot_s2_bounds_key = partition_cache.s2_bounds_key;
+	            const Key128 snapshot_s1_pair_key = partition_cache.s1_pair_key;
+	            const Key128 snapshot_s2_pair_key = partition_cache.s2_pair_key;
+	            const Key128 snapshot_s1_exact_base_key = partition_cache.s1_exact_base_key;
+	            const Key128 snapshot_s2_exact_base_key = partition_cache.s2_exact_base_key;
             const VectorRangeTreeMap& snapshot_bar1 = partition_structure_cache.T_bar1;
             const VectorRangeTreeMap& snapshot_bar2 = partition_structure_cache.T_bar2;
             const VectorRangeTreeMap& snapshot_end1 = partition_structure_cache.T_end1_ptr
@@ -4653,13 +4813,14 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             };
             const auto checkSidePartitionFeasibility = [&](const VectorRangeTreeMap& side_bar,
                                                            const VectorRangeTreeMap& side_end,
-                                                           const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&
-                                                                   side_pairs,
-                                                           const Key128 side_bounds_key,
-                                                           const Key128 side_pair_key,
-                                                           const int side_pair_incumbent,
-                                                           const bool side_empty,
-                                                           const int side_budget,
+	                                                           const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&
+	                                                                   side_pairs,
+	                                                           const Key128 side_bounds_key,
+	                                                           const Key128 side_pair_key,
+	                                                           const Key128 side_exact_base_key,
+	                                                           const int side_pair_incumbent,
+	                                                           const bool side_empty,
+	                                                           const int side_budget,
                                                            const bool is_side1) -> bool {
                 const auto side_cache_key = makeSideBudgetCacheKey(side_pair_key, side_bounds_key);
                 auto noteSideFeasible = [&](const int feasible_budget) {
@@ -4680,10 +4841,28 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     side_cache_entry.known_not_feasible_below =
                         std::max(side_cache_entry.known_not_feasible_below, infeasible_budget);
                 };
-                if (side_empty && side_pair_incumbent < std::numeric_limits<int>::max() &&
-                    side_pair_incumbent <= side_budget) {
-                    noteSideFeasible(side_pair_incumbent);
-                    return true;
+	                if (side_empty && side_pair_incumbent < std::numeric_limits<int>::max() &&
+	                    side_pair_incumbent <= side_budget) {
+	                    noteSideFeasible(side_pair_incumbent);
+	                    return true;
+	                }
+	                const auto side_cache_it = g_free_edge_partition_side_budget_cache.find(side_cache_key);
+                if (side_cache_it != g_free_edge_partition_side_budget_cache.end() &&
+                    side_cache_it->second.computed) {
+                    auto& side_cache_entry = side_cache_it->second;
+                    if (side_cache_entry.known_not_feasible_below >= side_budget) {
+                        if (g_profile.enabled) {
+                            g_profile.tds_partition_side_budget_cache_hits++;
+                        }
+                        return false;
+                    }
+                    if (side_cache_entry.known_min_feasible_budget >= 0 &&
+                        side_cache_entry.known_min_feasible_budget <= side_budget) {
+                        if (g_profile.enabled) {
+                            g_profile.tds_partition_side_budget_cache_hits++;
+                        }
+                        return true;
+                    }
                 }
 
                 bool pair_known = false;
@@ -4723,26 +4902,24 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     return known;
                 }
 
-                const auto side_cache_it = g_free_edge_partition_side_budget_cache.find(side_cache_key);
-                if (side_cache_it != g_free_edge_partition_side_budget_cache.end() &&
-                    side_cache_it->second.computed) {
-                    auto& side_cache_entry = side_cache_it->second;
-                    if (side_cache_entry.known_not_feasible_below >= side_budget) {
-                        if (g_profile.enabled) {
-                            g_profile.tds_partition_side_budget_cache_hits++;
-                        }
-                        return false;
-                    }
-                    if (side_cache_entry.known_min_feasible_budget >= 0 &&
-                        side_cache_entry.known_min_feasible_budget <= side_budget) {
-                        if (g_profile.enabled) {
-                            g_profile.tds_partition_side_budget_cache_hits++;
-                        }
-                        return true;
-                    }
-                }
-
-                const bool feasible = TreeDistS(side_bar, side_end, side_budget, side_pairs);
+	                EmptySKeys side_precomputed_keys{};
+	                const bool has_side_precomputed_keys =
+	                    side_empty &&
+	                    (side_exact_base_key.hi != 0 || side_exact_base_key.lo != 0);
+	                if (has_side_precomputed_keys) {
+	                    side_precomputed_keys.pair_key = side_pair_key;
+	                    side_precomputed_keys.bounds_key = side_bounds_key;
+	                    side_precomputed_keys.exact_key =
+	                        makeEmptySExactKeyFromBase(side_exact_base_key, side_budget);
+	                    side_precomputed_keys.exact_base_key = side_exact_base_key;
+	                }
+	                const bool feasible = TreeDistSImpl(side_bar,
+	                                                    side_end,
+	                                                    side_budget,
+	                                                    side_pairs,
+	                                                    has_side_precomputed_keys
+	                                                        ? &side_precomputed_keys
+	                                                        : nullptr);
                 if (g_profile.enabled) {
                     if (is_side1) {
                         g_profile.partition_side1_recursions++;
@@ -4844,13 +5021,13 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
             if (snapshot_structure_exception || snapshot_side_exception) {
                 debugPrint("TreeDistS: Partitioning failed, continuing free-edge contraction");
-                S_work = std::move(S_filtered);
+                S_work.assign(S_filtered.begin(), S_filtered.end());
                 --k_work;
                 continue;
             }
             if (!snapshot_precheck_ok || !snapshot_partition_nodes_match) {
                 debugPrint("TreeDistS: Partition mismatch, continuing free-edge contraction");
-                S_work = std::move(S_filtered);
+                S_work.assign(S_filtered.begin(), S_filtered.end());
                 --k_work;
                 continue;
             }
@@ -4862,10 +5039,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 }
                 const bool side2_ok = checkSidePartitionFeasibility(snapshot_bar2,
                                                                    snapshot_end2,
-                                                                   snapshot_S2,
-                                                                   snapshot_s2_bounds_key,
-                                                                   snapshot_s2_pair_key,
-                                                                   snapshot_s2_pair_incumbent,
+	                                                                   snapshot_S2,
+	                                                                   snapshot_s2_bounds_key,
+	                                                                   snapshot_s2_pair_key,
+	                                                                   snapshot_s2_exact_base_key,
+	                                                                   snapshot_s2_pair_incumbent,
                                                                    snapshot_s2_empty,
                                                                    partition_budget,
                                                                    false);
@@ -4879,10 +5057,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 }
                 const bool side1_ok = checkSidePartitionFeasibility(snapshot_bar1,
                                                                    snapshot_end1,
-                                                                   snapshot_S1,
-                                                                   snapshot_s1_bounds_key,
-                                                                   snapshot_s1_pair_key,
-                                                                   snapshot_s1_pair_incumbent,
+	                                                                   snapshot_S1,
+	                                                                   snapshot_s1_bounds_key,
+	                                                                   snapshot_s1_pair_key,
+	                                                                   snapshot_s1_exact_base_key,
+	                                                                   snapshot_s1_pair_incumbent,
                                                                    snapshot_s1_empty,
                                                                    partition_budget,
                                                                    true);
@@ -4895,8 +5074,8 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             const int side2_state_exact_success = exactMinSuccess(g_tds_bounds, snapshot_s2_bounds_key);
             const int side1_pair_exact_success = exactMinSuccess(g_kbounds, snapshot_s1_pair_key);
             const int side2_pair_exact_success = exactMinSuccess(g_kbounds, snapshot_s2_pair_key);
-            const int side1_lb = sideLowerBound(snapshot_s1_pair_key, snapshot_s1_bounds_key, snapshot_conf1);
-            const int side2_lb = sideLowerBound(snapshot_s2_pair_key, snapshot_s2_bounds_key, snapshot_conf2);
+	            const int side1_lb = sideLowerBound(snapshot_s1_pair_key, snapshot_s1_bounds_key, snapshot_conf1);
+	            const int side2_lb = sideLowerBound(snapshot_s2_pair_key, snapshot_s2_bounds_key, snapshot_conf2);
             const int side1_exact_lb = std::max(side1_state_exact_success, side1_pair_exact_success);
             const int side2_exact_lb = std::max(side2_state_exact_success, side2_pair_exact_success);
             int partition_min_k1 = std::max(0, side1_lb);
@@ -4959,7 +5138,7 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             }
 
             const std::size_t min_budget_problem_size =
-                g_active_problem_size > 0 ? g_active_problem_size : T_work.original_nodes.size();
+                g_active_problem_size > 0 ? g_active_problem_size : T_work.original_inorder.size();
             if (tdsPartitionMinBudgetSearchEnabledForSize(min_budget_problem_size)) {
                 const int INF_BUDGET = std::numeric_limits<int>::max() / 4;
                 const auto bounds_max_fail = [](const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
@@ -5000,21 +5179,22 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                 const auto minimalFeasibleBudget = [&](const VectorRangeTreeMap& side_bar,
                                                       const VectorRangeTreeMap& side_end,
-                                                      const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& side_pairs,
-                                                      const Key128 side_bounds_key,
-                                                      const Key128 side_pair_key,
-                                                      const int side_conflicts,
+	                                                      const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& side_pairs,
+	                                                      const Key128 side_bounds_key,
+	                                                      const Key128 side_pair_key,
+	                                                      const Key128 side_exact_base_key,
+	                                                      const int side_conflicts,
                                                       const int side_pair_incumbent,
                                                       const bool side_empty,
                                                       int side_min_budget,
                                                       int side_max_budget,
                                                       const bool is_side1) -> int {
-                    if (side_min_budget > side_max_budget) {
-                        return INF_BUDGET;
-                    }
-                    side_min_budget = std::max(side_min_budget, side_conflicts);
-                    const int side_max_fail = std::max(bounds_max_fail(g_tds_bounds, side_bounds_key),
-                                                      pair_max_fail(side_pair_key));
+	                    if (side_min_budget > side_max_budget) {
+	                        return INF_BUDGET;
+	                    }
+	                    side_min_budget = std::max(side_min_budget, side_conflicts);
+	                    const int side_max_fail = std::max(bounds_max_fail(g_tds_bounds, side_bounds_key),
+	                                                      pair_max_fail(side_pair_key));
                     if (side_max_fail >= 0) {
                         side_min_budget = std::max(side_min_budget, side_max_fail + 1);
                     }
@@ -5107,10 +5287,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     auto isFeasible = [&](const int budget) {
                         return checkSidePartitionFeasibility(side_bar,
                                                             side_end,
-                                                            side_pairs,
-                                                            side_bounds_key,
-                                                            side_pair_key,
-                                                            side_pair_incumbent,
+	                                                            side_pairs,
+	                                                            side_bounds_key,
+	                                                            side_pair_key,
+	                                                            side_exact_base_key,
+	                                                            side_pair_incumbent,
                                                             side_empty,
                                                             budget,
                                                             is_side1);
@@ -5187,10 +5368,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 if (search_side2_first) {
                     const int min_side2_budget = minimalFeasibleBudget(snapshot_bar2,
                                                                        snapshot_end2,
-                                                                       snapshot_S2,
-                                                                       snapshot_s2_bounds_key,
-                                                                       snapshot_s2_pair_key,
-                                                                       snapshot_conf2,
+	                                                                       snapshot_S2,
+	                                                                       snapshot_s2_bounds_key,
+	                                                                       snapshot_s2_pair_key,
+	                                                                       snapshot_s2_exact_base_key,
+	                                                                       snapshot_conf2,
                                                                        snapshot_s2_pair_incumbent,
                                                                        snapshot_s2_empty,
                                                                        partition_budget - partition_max_k1,
@@ -5215,10 +5397,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                     const bool side1_ok = checkSidePartitionFeasibility(snapshot_bar1,
                                                                         snapshot_end1,
-                                                                        snapshot_S1,
-                                                                        snapshot_s1_bounds_key,
-                                                                        snapshot_s1_pair_key,
-                                                                        snapshot_s1_pair_incumbent,
+	                                                                        snapshot_S1,
+	                                                                        snapshot_s1_bounds_key,
+	                                                                        snapshot_s1_pair_key,
+	                                                                        snapshot_s1_exact_base_key,
+	                                                                        snapshot_s1_pair_incumbent,
                                                                         snapshot_s1_empty,
                                                                         remaining_after_side2,
                                                                         true);
@@ -5227,10 +5410,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                 const int min_side1_budget = minimalFeasibleBudget(snapshot_bar1,
                                                                    snapshot_end1,
-                                                                   snapshot_S1,
-                                                                   snapshot_s1_bounds_key,
-                                                                   snapshot_s1_pair_key,
-                                                                   snapshot_conf1,
+	                                                                   snapshot_S1,
+	                                                                   snapshot_s1_bounds_key,
+	                                                                   snapshot_s1_pair_key,
+	                                                                   snapshot_s1_exact_base_key,
+	                                                                   snapshot_conf1,
                                                                    snapshot_s1_pair_incumbent,
                                                                    snapshot_s1_empty,
                                                                    partition_min_k1,
@@ -5254,10 +5438,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                 const bool side2_ok = checkSidePartitionFeasibility(snapshot_bar2,
                                                                     snapshot_end2,
-                                                                    snapshot_S2,
-                                                                    snapshot_s2_bounds_key,
-                                                                    snapshot_s2_pair_key,
-                                                                    snapshot_s2_pair_incumbent,
+	                                                                    snapshot_S2,
+	                                                                    snapshot_s2_bounds_key,
+	                                                                    snapshot_s2_pair_key,
+	                                                                    snapshot_s2_exact_base_key,
+	                                                                    snapshot_s2_pair_incumbent,
                                                                     snapshot_s2_empty,
                                                                     remaining_after_side1,
                                                                     false);
@@ -5351,10 +5536,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     if (side1_guaranteed) {
                         const bool s2_ok = checkSidePartitionFeasibility(snapshot_bar2,
                                                                         snapshot_end2,
-                                                                        snapshot_S2,
-                                                                        snapshot_s2_bounds_key,
-                                                                        snapshot_s2_pair_key,
-                                                                        snapshot_s2_pair_incumbent,
+	                                                                        snapshot_S2,
+	                                                                        snapshot_s2_bounds_key,
+	                                                                        snapshot_s2_pair_key,
+	                                                                        snapshot_s2_exact_base_key,
+	                                                                        snapshot_s2_pair_incumbent,
                                                                         snapshot_s2_empty,
                                                                         k2,
                                                                         false);
@@ -5385,10 +5571,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     if (side2_guaranteed) {
                         const bool s1_ok = checkSidePartitionFeasibility(snapshot_bar1,
                                                                         snapshot_end1,
-                                                                        snapshot_S1,
-                                                                        snapshot_s1_bounds_key,
-                                                                        snapshot_s1_pair_key,
-                                                                        snapshot_s1_pair_incumbent,
+	                                                                        snapshot_S1,
+	                                                                        snapshot_s1_bounds_key,
+	                                                                        snapshot_s1_pair_key,
+	                                                                        snapshot_s1_exact_base_key,
+	                                                                        snapshot_s1_pair_incumbent,
                                                                         snapshot_s1_empty,
                                                                         k1,
                                                                         true);
@@ -5420,10 +5607,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     if (check_side1_first) {
                         const bool s1_ok = checkSidePartitionFeasibility(snapshot_bar1,
                                                                         snapshot_end1,
-                                                                        snapshot_S1,
-                                                                        snapshot_s1_bounds_key,
-                                                                        snapshot_s1_pair_key,
-                                                                        snapshot_s1_pair_incumbent,
+	                                                                        snapshot_S1,
+	                                                                        snapshot_s1_bounds_key,
+	                                                                        snapshot_s1_pair_key,
+	                                                                        snapshot_s1_exact_base_key,
+	                                                                        snapshot_s1_pair_incumbent,
                                                                         snapshot_s1_empty,
                                                                         k1,
                                                                         true);
@@ -5448,10 +5636,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                         const bool s2_ok = checkSidePartitionFeasibility(snapshot_bar2,
                                                                         snapshot_end2,
-                                                                        snapshot_S2,
-                                                                        snapshot_s2_bounds_key,
-                                                                        snapshot_s2_pair_key,
-                                                                        snapshot_s2_pair_incumbent,
+	                                                                        snapshot_S2,
+	                                                                        snapshot_s2_bounds_key,
+	                                                                        snapshot_s2_pair_key,
+	                                                                        snapshot_s2_exact_base_key,
+	                                                                        snapshot_s2_pair_incumbent,
                                                                         snapshot_s2_empty,
                                                                         k2,
                                                                         false);
@@ -5481,10 +5670,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                     const bool s2_ok = checkSidePartitionFeasibility(snapshot_bar2,
                                                                     snapshot_end2,
-                                                                    snapshot_S2,
-                                                                    snapshot_s2_bounds_key,
-                                                                    snapshot_s2_pair_key,
-                                                                    snapshot_s2_pair_incumbent,
+	                                                                    snapshot_S2,
+	                                                                    snapshot_s2_bounds_key,
+	                                                                    snapshot_s2_pair_key,
+	                                                                    snapshot_s2_exact_base_key,
+	                                                                    snapshot_s2_pair_incumbent,
                                                                     snapshot_s2_empty,
                                                                     k2,
                                                                     false);
@@ -5509,10 +5699,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
                     const bool s1_ok = checkSidePartitionFeasibility(snapshot_bar1,
                                                                     snapshot_end1,
-                                                                    snapshot_S1,
-                                                                    snapshot_s1_bounds_key,
-                                                                    snapshot_s1_pair_key,
-                                                                    snapshot_s1_pair_incumbent,
+	                                                                    snapshot_S1,
+	                                                                    snapshot_s1_bounds_key,
+	                                                                    snapshot_s1_pair_key,
+	                                                                    snapshot_s1_exact_base_key,
+	                                                                    snapshot_s1_pair_incumbent,
                                                                     snapshot_s1_empty,
                                                                     k1,
                                                                     true);
@@ -5594,9 +5785,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 }
             }
         }
-        const int current_conflicts = S_work.empty()
-                                          ? cachedConflictCountWithKey(T_work, T_end, work_pair_key)
-                                          : cachedConflictCount(T_work, T_end);
+	        const int current_conflicts = S_work.empty()
+	                                          ? cachedConflictCountWithKey(T_work, T_end, work_pair_key)
+	                                          : cachedConflictCount(T_work, T_end);
         const bool must_drop_conflict_now = (k_work == current_conflicts);
         const int child_k = k_work - 1;
         const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> empty_S;
@@ -5607,13 +5798,14 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             int free_hint = -1;
             int child_lb = INT_MAX;
             Key128 child_exact_key{};
+            Key128 child_exact_base_key{};
             Key128 child_bounds_key{};
             Key128 child_pair_key{};
             std::uint64_t partition_signature = 0;
         };
         const bool use_signature_dedupe = emptySDedupEnabled();
         const int order_mode = emptySOrderMode();
-        const bool use_free_hint = (g_empty_s_disable_free_hint_depth == 0);
+	        const bool use_free_hint = (g_empty_s_disable_free_hint_depth == 0);
         const bool use_incumbent_prune = incumbentPruneEnabled();
         // Only the non-default tight-cache experiment needs budget-complete entries.
         const bool budget_safe_empty_s_cache = !emptySTightNoCacheEnabled();
@@ -5673,9 +5865,9 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 return h;
             }
         };
-        const auto populateCandidate = [&](RotationCandidate& cand,
-                                           const VectorRangeTreeMap& candidate_tree,
-                                           const int next_conflicts_hint) -> bool {
+	        const auto populateCandidate = [&](RotationCandidate& cand,
+	                                           const VectorRangeTreeMap& candidate_tree,
+	                                           const int next_conflicts_hint) -> bool {
             cand.next_conflicts = (next_conflicts_hint >= 0)
                                       ? next_conflicts_hint
                                       : cachedConflictCount(candidate_tree, T_end);
@@ -5684,15 +5876,48 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             }
             cand.child_lb = std::max(requiredBudgetFromBounds(g_tds_bounds, cand.child_bounds_key),
                                    requiredBudgetFromBounds(g_kbounds, cand.child_pair_key));
-            cand.child_lb = std::max(cand.next_conflicts, cand.child_lb);
-            return true;
-        };
-        auto edges = getInternalEdges(T_work);
-        const auto& s_empty_target_edges = cachedTargetChildRanges(T_end);
-        std::vector<RotationCandidate> candidates;
-        candidates.reserve(edges.size());
-        std::vector<RotationCandidate> plateau_candidates;
-        plateau_candidates.reserve(edges.size());
+	            cand.child_lb = std::max(cand.next_conflicts, cand.child_lb);
+	            return true;
+	        };
+	        const auto noteEmptyChildLowerBoundPrune = [&](const RotationCandidate& cand) {
+	            if (cand.child_lb <= child_k) {
+	                return;
+	            }
+	            updateBounds(g_tds_bounds, cand.child_bounds_key, child_k, false);
+	            updateBounds(g_kbounds, cand.child_pair_key, child_k, false);
+	        };
+	        thread_local std::vector<std::pair<int, int>> empty_s_edges_scratch;
+        auto& edges = empty_s_edges_scratch;
+        edges.clear();
+	        try {
+	            if (!T_work.original_inorder.empty() && T_work.root >= 0 && T_work.isOriginal(T_work.root)) {
+	                edges.reserve(T_work.original_inorder.size() > 0 ? T_work.original_inorder.size() - 1 : 0);
+	                const bool use_preorder =
+	                    T_work.original_preorder.size() == T_work.original_inorder.size();
+	                const auto& edge_order = use_preorder
+	                                             ? T_work.original_preorder
+	                                             : T_work.original_inorder;
+	                for (int node : edge_order) {
+	                    if (node < 0 || !T_work.isOriginal(node) ||
+	                        node >= static_cast<int>(T_work.parents.size())) {
+	                        continue;
+	                    }
+	                    const int parent = T_work.parents[node];
+	                    if (parent >= 0 && T_work.isOriginal(parent)) {
+	                        edges.emplace_back(parent, node);
+	                    }
+	                }
+	            }
+	        } catch (const SearchAbortException&) {
+            throw;
+	        } catch (...) {
+            edges.clear();
+	        }
+	        const auto& s_empty_target_edges = cachedTargetChildRanges(T_end);
+	        std::vector<RotationCandidate> candidates;
+	        candidates.reserve(edges.size());
+	        std::vector<RotationCandidate> plateau_candidates;
+	        plateau_candidates.reserve(edges.size());
         auto byPromise = [order_mode](const RotationCandidate& a, const RotationCandidate& b) {
             if (order_mode == 1 && a.free_hint != b.free_hint) {
                 return a.free_hint > b.free_hint;
@@ -5735,6 +5960,22 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 T_work.rotateRight(child);
             }
         };
+        struct FingerprintSnapshot {
+            bool valid = false;
+            std::uint64_t h1 = 0;
+            std::uint64_t h2 = 0;
+        };
+        auto captureFingerprint = [&]() {
+            return FingerprintSnapshot{
+                T_work.fingerprint_valid,
+                T_work.fingerprint_h1,
+                T_work.fingerprint_h2};
+        };
+        auto restoreFingerprint = [&](const FingerprintSnapshot& snapshot) {
+            T_work.fingerprint_valid = snapshot.valid;
+            T_work.fingerprint_h1 = snapshot.h1;
+            T_work.fingerprint_h2 = snapshot.h2;
+        };
         const auto refreshDeferredFreeHint = [&](RotationCandidate& cand,
                                                 EmptySChildCacheItem* cache_item) -> bool {
             if (cand.free_hint >= 0) {
@@ -5751,15 +5992,18 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             }
             int rotate_dir = 0;
             bool rotated = false;
+            FingerprintSnapshot before_rotation{};
             const int parent = cand.edge.first;
             const int child = cand.edge.second;
             auto rollbackRotation = [&]() {
                 if (rotated) {
                     undoRotateState(child, rotate_dir);
+                    restoreFingerprint(before_rotation);
                     rotated = false;
                 }
             };
             try {
+                before_rotation = captureFingerprint();
                 rotated = rotateEdgeState(parent, child, rotate_dir);
                 if (!rotated) {
                     rollbackRotation();
@@ -5779,34 +6023,45 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                 return false;
             }
         };
-        if (use_signature_dedupe) {
-            const EmptySChildCacheKey cache_key{work_pair_key};
-            std::vector<RotationCandidate> cached_candidates;
-            bool early_commit = false;
-            auto buildCacheAndCollect = [&](bool build_new_cache) -> std::vector<RotationCandidate> {
-                std::vector<std::pair<EmptySChildStateSignature, RotationCandidate>> best_signature_states;
-                best_signature_states.reserve(edges.size());
-                std::vector<Key128> seen_child_pair_keys;
-                seen_child_pair_keys.reserve(edges.size());
-	                for (const auto& edge : edges) {
+	        if (use_signature_dedupe) {
+	            const EmptySChildCacheKey cache_key{work_pair_key};
+			            thread_local std::vector<RotationCandidate> empty_s_cached_candidates_scratch;
+			            auto& cached_candidates = empty_s_cached_candidates_scratch;
+			            cached_candidates.clear();
+			            bool early_commit = false;
+			            auto buildCacheAndCollect = [&](bool build_new_cache) {
+			                cached_candidates.clear();
+			                thread_local std::vector<std::pair<EmptySChildStateSignature, RotationCandidate>>
+			                    best_signature_states_scratch;
+			                auto& best_signature_states = best_signature_states_scratch;
+			                best_signature_states.clear();
+			                best_signature_states.reserve(edges.size());
+			                thread_local std::vector<Key128> seen_child_pair_keys_scratch;
+			                auto& seen_child_pair_keys = seen_child_pair_keys_scratch;
+			                seen_child_pair_keys.clear();
+			                seen_child_pair_keys.reserve(edges.size());
+			                for (const auto& edge : edges) {
 	                    int rotate_dir = 0;
 	                    bool rotated = false;
 	                    int parent = edge.first;
 	                    int child = edge.second;
-	                    std::array<RP, 4> old_rotation_edges{};
-	                    int old_rotation_edge_count = 0;
-	                    auto rollbackRotation = [&]() {
-	                        if (rotated) {
-	                            undoRotateState(child, rotate_dir);
+                    std::array<RP, 4> old_rotation_edges{};
+                    int old_rotation_edge_count = 0;
+                    FingerprintSnapshot before_rotation{};
+                    auto rollbackRotation = [&]() {
+                        if (rotated) {
+                            undoRotateState(child, rotate_dir);
+                            restoreFingerprint(before_rotation);
                             rotated = false;
                         }
-	                    };
-	                    try {
-	                        old_rotation_edge_count =
-	                            collectOutgoingRangeEdgesForNodes(T_work, parent, child, old_rotation_edges);
-	                        rotated = rotateEdgeState(parent, child, rotate_dir);
-	                        if (!rotated) {
-	                            rollbackRotation();
+                    };
+                    try {
+                        old_rotation_edge_count =
+                            collectOutgoingRangeEdgesForNodes(T_work, parent, child, old_rotation_edges);
+                        before_rotation = captureFingerprint();
+                        rotated = rotateEdgeState(parent, child, rotate_dir);
+                        if (!rotated) {
+                            rollbackRotation();
                             continue;
                         }
 
@@ -5831,21 +6086,29 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                            }
 	                            continue;
 	                        }
+	                        if (next_conflicts_hint == 0 && TreesEqual(T_work, T_end)) {
+	                            rollbackRotation();
+	                            early_commit = true;
+	                            break;
+	                        }
 
-                        EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
-                        Key128 child_pair_key = child_keys.pair_key;
-                        const bool repeated_pair_state =
-                            std::find(seen_child_pair_keys.begin(),
-                                      seen_child_pair_keys.end(),
-                                      child_pair_key) != seen_child_pair_keys.end();
-                        if (repeated_pair_state) {
-                            rollbackRotation();
-                            if (g_profile.enabled) {
+		                        EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
+		                        Key128 child_pair_key = child_keys.pair_key;
+		                        if (next_conflicts_hint >= 0) {
+		                            g_conflict_cache.try_emplace(child_pair_key, next_conflicts_hint);
+		                        }
+		                        const bool repeated_pair_state =
+		                            std::find(seen_child_pair_keys.begin(),
+		                                      seen_child_pair_keys.end(),
+	                                      child_pair_key) != seen_child_pair_keys.end();
+	                        if (repeated_pair_state) {
+	                            rollbackRotation();
+	                            if (g_profile.enabled) {
                                 g_profile.s_empty_duplicate_child_states++;
-                            }
-                            continue;
-                        }
-                        seen_child_pair_keys.push_back(child_pair_key);
+	                            }
+	                            continue;
+	                        }
+	                        seen_child_pair_keys.push_back(child_pair_key);
 
                         const int child_pair_incumbent = use_incumbent_prune
                                                             ? pairIncumbentUpper(child_pair_key)
@@ -5858,47 +6121,59 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             early_commit = true;
                             break;
                         }
-
-                        Key128 child_bounds_key = child_keys.bounds_key;
-                        Key128 child_exact_key = child_keys.exact_key;
-
-                        auto child_memo_it = g_memo_tds.find(child_exact_key);
-                        if (child_memo_it != g_memo_tds.end()) {
-                            if (child_memo_it->second) {
+                        bool child_pair_known = false;
+                        if (tryBoundsPrune(g_kbounds, child_pair_key, child_k, child_pair_known)) {
+                            if (child_pair_known) {
                                 rollbackRotation();
                                 early_commit = true;
                                 break;
                             }
-                        }
-                        bool child_known_tds = false;
-                        if (tryBoundsPrune(g_tds_bounds, child_bounds_key, child_k, child_known_tds)) {
                             if (g_profile.enabled) {
-                                g_profile.bounds_hits_tds++;
+                                g_profile.s_empty_duplicate_child_states++;
+                            }
+                            rollbackRotation();
+                            continue;
+                        }
+
+			                    Key128 child_bounds_key = child_keys.bounds_key;
+			                    Key128 child_exact_key = child_keys.exact_key;
+			                    Key128 child_exact_base_key = child_keys.exact_base_key;
+
+	                        auto child_memo_it = g_memo_tds.find(child_exact_key);
+	                        if (child_memo_it != g_memo_tds.end()) {
+	                            if (child_memo_it->second) {
+	                                rollbackRotation();
+	                                early_commit = true;
+	                                break;
+	                            }
+	                        }
+	                        bool child_known_tds = false;
+	                        if (tryBoundsPrune(g_tds_bounds, child_bounds_key, child_k, child_known_tds)) {
+	                            if (g_profile.enabled) {
+	                                g_profile.bounds_hits_tds++;
                             }
                             if (child_known_tds) {
                                 rollbackRotation();
-                                early_commit = true;
-                                break;
-                            }
-                        }
+	                                early_commit = true;
+	                                break;
+	                            }
+	                        }
 
-                        RotationCandidate cand{edge,
-                                              INT_MAX,
-                                              INT_MAX,
-                                              -1,
-                                              INT_MAX,
-                                              child_exact_key,
-	                                              child_bounds_key,
-	                                              child_pair_key,
-	                                              0};
+                        RotationCandidate cand;
+                        cand.edge = edge;
+                        cand.child_exact_key = child_exact_key;
+                        cand.child_exact_base_key = child_exact_base_key;
+                        cand.child_bounds_key = child_bounds_key;
+                        cand.child_pair_key = child_pair_key;
 		                        if (!populateCandidate(cand, T_work, next_conflicts_hint)) {
 		                            rollbackRotation();
 		                            continue;
 		                        }
-                        if (!build_new_cache && cand.child_lb > child_k) {
-                            rollbackRotation();
-                            continue;
-                        }
+	                        if (!build_new_cache && cand.child_lb > child_k) {
+	                            noteEmptyChildLowerBoundPrune(cand);
+	                            rollbackRotation();
+	                            continue;
+	                        }
                         const bool child_within_budget = cand.child_lb <= child_k;
                         if (cand.next_conflicts < current_conflicts) {
                             cand.free_hint = 0;
@@ -5915,39 +6190,37 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             cand.free_hint = 0;
                             cand.partition_signature = 0;
                         }
-                        cand.next_conflicts_bucket = cand.next_conflicts;
-                        EmptySChildStateSignature sig{
-                            child_pair_key, child_bounds_key, cand.next_conflicts};
-                        auto it = std::find_if(best_signature_states.begin(),
-                                               best_signature_states.end(),
-                                               [&](const auto& entry) {
-                                                   return entry.first == sig;
-                                               });
-                        if (it == best_signature_states.end()) {
-                            best_signature_states.emplace_back(sig, cand);
-                        } else if (candidateStateDominates(cand, it->second)) {
-                            it->second = cand;
-                        }
-                        rollbackRotation();
+	                        cand.next_conflicts_bucket = cand.next_conflicts;
+	                        EmptySChildStateSignature sig{
+	                            child_pair_key, child_bounds_key, cand.next_conflicts};
+	                        auto it = std::find_if(best_signature_states.begin(),
+	                                               best_signature_states.end(),
+	                                               [&](const auto& entry) {
+	                                                   return entry.first == sig;
+	                                               });
+	                        if (it == best_signature_states.end()) {
+	                            best_signature_states.emplace_back(sig, cand);
+	                        } else if (candidateStateDominates(cand, it->second)) {
+	                            it->second = cand;
+	                        }
+	                        rollbackRotation();
                     } catch (const SearchAbortException&) {
                         throw;
                     } catch (...) {
                         rollbackRotation();
                         continue;
-                    }
-                }
-                std::vector<RotationCandidate> built_candidates;
-                built_candidates.reserve(best_signature_states.size());
-                if (build_new_cache) {
-                    EmptySChildCacheEntry cache_entry;
-                    cache_entry.coverage_child_k = budget_safe_empty_s_cache
-                                                       ? std::numeric_limits<int>::max()
-                                                       : child_k;
-                    cache_entry.items.reserve(best_signature_states.size());
-                    for (auto&& entry : best_signature_states) {
-                        auto& cand = entry.second;
-                        cache_entry.items.push_back(EmptySChildCacheItem{
-                            cand.edge,
+	                    }
+	                }
+		                if (build_new_cache) {
+		                    EmptySChildCacheEntry cache_entry;
+		                    cache_entry.coverage_child_k = budget_safe_empty_s_cache
+	                                                       ? std::numeric_limits<int>::max()
+	                                                       : child_k;
+	                    cache_entry.items.reserve(best_signature_states.size());
+	                    for (auto&& entry : best_signature_states) {
+	                        auto& cand = entry.second;
+	                        cache_entry.items.push_back(EmptySChildCacheItem{
+	                            cand.edge,
                             cand.next_conflicts,
                             cand.next_conflicts_bucket,
                             cand.free_hint,
@@ -5956,23 +6229,26 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             use_incumbent_prune
                                 ? pairIncumbentUpper(cand.child_pair_key)
                                 : std::numeric_limits<int>::max(),
-                            cand.child_pair_key,
-                            cand.child_bounds_key,
-                            cand.partition_signature});
-                        if (cand.child_lb <= child_k) {
-                            built_candidates.push_back(cand);
-                        }
-                    }
-                    g_empty_s_child_cache.insert_or_assign(cache_key, std::move(cache_entry));
-                } else {
-                    for (auto&& entry : best_signature_states) {
-                        if (entry.second.child_lb <= child_k) {
-                            built_candidates.push_back(std::move(entry.second));
-                        }
-                    }
-                }
-                return built_candidates;
-            };
+			                            cand.child_exact_key,
+			                            cand.child_exact_base_key,
+			                            cand.child_pair_key,
+			                            cand.child_bounds_key,
+		                            cand.partition_signature});
+		                        if (cand.child_lb <= child_k) {
+		                            cached_candidates.push_back(cand);
+		                        } else {
+		                            noteEmptyChildLowerBoundPrune(cand);
+		                        }
+	                    }
+	                    g_empty_s_child_cache.insert_or_assign(cache_key, std::move(cache_entry));
+		                } else {
+		                    for (auto&& entry : best_signature_states) {
+		                        if (entry.second.child_lb <= child_k) {
+		                            cached_candidates.push_back(std::move(entry.second));
+		                        }
+		                    }
+		                }
+		            };
 	            const bool tight_no_cache =
 	                must_drop_conflict_now && emptySTightNoCacheEnabled();
 	            auto cache_it = tight_no_cache ? g_empty_s_child_cache.end()
@@ -5982,22 +6258,30 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                cache_it->second.coverage_child_k < child_k) {
 	                cache_it = g_empty_s_child_cache.end();
 	            }
-	            if (cache_it == g_empty_s_child_cache.end()) {
-	                cached_candidates = buildCacheAndCollect(!tight_no_cache);
-	                if (early_commit) {
-	                    return commitResult(true);
-	                }
+		            if (cache_it == g_empty_s_child_cache.end()) {
+		                buildCacheAndCollect(!tight_no_cache);
+		                if (early_commit) {
+		                    return commitResult(true);
+		                }
             } else {
                 for (auto& item : cache_it->second.items) {
                     RotationCandidate cand;
                     cand.edge = item.edge;
                     cand.next_conflicts = item.next_conflicts;
-                    cand.next_conflicts_bucket = item.next_conflicts_bucket;
-                    cand.free_hint = item.free_hint;
-                    cand.child_lb = item.child_lb;
-                    cand.child_pair_key = item.child_pair_key;
-                    cand.child_bounds_key = item.child_bounds_key;
-                    cand.partition_signature = item.partition_signature;
+	                    cand.next_conflicts_bucket = item.next_conflicts_bucket;
+	                    cand.free_hint = item.free_hint;
+		                    cand.child_lb = item.child_lb;
+		                    cand.child_exact_base_key = item.child_exact_base_key;
+		                    if (item.child_k == child_k) {
+		                        cand.child_exact_key = item.child_exact_key;
+		                    } else if (cand.child_exact_base_key.hi != 0 ||
+		                               cand.child_exact_base_key.lo != 0) {
+		                        cand.child_exact_key =
+		                            makeEmptySExactKeyFromBase(cand.child_exact_base_key, child_k);
+		                    }
+		                    cand.child_pair_key = item.child_pair_key;
+		                    cand.child_bounds_key = item.child_bounds_key;
+		                    cand.partition_signature = item.partition_signature;
                     if (must_drop_conflict_now && cand.next_conflicts >= current_conflicts) {
                         if (g_profile.enabled) {
                             g_profile.s_empty_must_drop_rejects++;
@@ -6010,20 +6294,31 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     if (child_pair_incumbent <= child_k) {
                         return commitResult(true);
                     }
-                    if (item.child_k == child_k) {
-                        const int required_lb = std::max(requiredBudgetFromBounds(g_tds_bounds, cand.child_bounds_key),
-                                                         requiredBudgetFromBounds(g_kbounds, cand.child_pair_key));
-                        cand.child_lb = std::max({item.child_lb, required_lb, cand.next_conflicts});
-                        if (cand.child_lb > child_k) {
-                            continue;
+                    bool child_pair_known = false;
+                    if (tryBoundsPrune(g_kbounds, cand.child_pair_key, child_k, child_pair_known)) {
+                        if (child_pair_known) {
+                            return commitResult(true);
                         }
-                        if (!refreshDeferredFreeHint(cand, &item)) {
-                            continue;
+                        if (g_profile.enabled) {
+                            g_profile.s_empty_duplicate_child_states++;
                         }
-                        cached_candidates.push_back(cand);
                         continue;
                     }
-                    bool child_bounds_known = false;
+	                    const bool has_cached_child_exact_key =
+	                        cand.child_exact_key.hi != 0 || cand.child_exact_key.lo != 0;
+	                    if (has_cached_child_exact_key) {
+	                        auto child_memo_it = g_memo_tds.find(cand.child_exact_key);
+	                        if (child_memo_it != g_memo_tds.end()) {
+	                            if (child_memo_it->second) {
+	                                return commitResult(true);
+                            }
+                            if (g_profile.enabled) {
+                                g_profile.s_empty_duplicate_child_states++;
+	                            }
+	                            continue;
+	                        }
+	                    }
+	                    bool child_bounds_known = false;
                     if (tryBoundsPrune(g_tds_bounds, cand.child_bounds_key, child_k, child_bounds_known)) {
                         if (g_profile.enabled) {
                             g_profile.bounds_hits_tds++;
@@ -6039,31 +6334,32 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                     if (cand.next_conflicts < 0 || cand.next_conflicts > child_k) {
                         continue;
                     }
-                    cand.child_lb = std::max(requiredBudgetFromBounds(g_tds_bounds, cand.child_bounds_key),
-                                            requiredBudgetFromBounds(g_kbounds, cand.child_pair_key));
-                    cand.child_lb = std::max(cand.child_lb, cand.next_conflicts);
-                    if (cand.child_lb > child_k) {
-                        continue;
-                    }
+	                    const int required_lb = std::max(requiredBudgetFromBounds(g_tds_bounds, cand.child_bounds_key),
+	                                                     requiredBudgetFromBounds(g_kbounds, cand.child_pair_key));
+		                    cand.child_lb = std::max({item.child_lb, required_lb, cand.next_conflicts});
+	                    if (cand.child_lb > child_k) {
+	                        noteEmptyChildLowerBoundPrune(cand);
+	                        continue;
+	                    }
                     if (!refreshDeferredFreeHint(cand, &item)) {
                         continue;
                     }
                     cached_candidates.push_back(cand);
                 }
             }
-            for (auto&& cand : cached_candidates) {
-                if (must_drop_conflict_now && cand.next_conflicts >= current_conflicts) {
-                    if (g_profile.enabled) {
+	            for (auto&& cand : cached_candidates) {
+	                if (must_drop_conflict_now && cand.next_conflicts >= current_conflicts) {
+	                    if (g_profile.enabled) {
                         g_profile.s_empty_must_drop_rejects++;
-                    }
-                    continue;
-                }
-                if (cand.next_conflicts < current_conflicts || cand.free_hint) {
-                    candidates.push_back(cand);
-                } else {
-                    plateau_candidates.push_back(cand);
-                }
-            }
+	                    }
+	                    continue;
+	                }
+		                if (cand.next_conflicts < current_conflicts || cand.free_hint) {
+		                    candidates.push_back(cand);
+		                } else {
+		                    plateau_candidates.push_back(cand);
+		                }
+	            }
         } else {
             std::unordered_map<EmptySChildSignature, RotationCandidate, EmptySChildSignatureHash> best_signature_states;
             best_signature_states.reserve(edges.size() * 2 + 1);
@@ -6076,20 +6372,23 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                    bool rotated = false;
 	                    int parent = edge.first;
 	                    int child = edge.second;
-	                    std::array<RP, 4> old_rotation_edges{};
-	                    int old_rotation_edge_count = 0;
-	                    auto rollbackRotation = [&]() {
-	                        if (rotated) {
-	                            undoRotateState(child, rotate_dir);
-                        rotated = false;
-                    }
-	                };
-	                try {
-	                    old_rotation_edge_count =
-	                        collectOutgoingRangeEdgesForNodes(T_work, parent, child, old_rotation_edges);
-	                    rotated = rotateEdgeState(parent, child, rotate_dir);
-	                    if (!rotated) {
-	                        rollbackRotation();
+                    std::array<RP, 4> old_rotation_edges{};
+                    int old_rotation_edge_count = 0;
+                    FingerprintSnapshot before_rotation{};
+                    auto rollbackRotation = [&]() {
+                        if (rotated) {
+                            undoRotateState(child, rotate_dir);
+                            restoreFingerprint(before_rotation);
+                            rotated = false;
+                        }
+                    };
+                try {
+                    old_rotation_edge_count =
+                        collectOutgoingRangeEdgesForNodes(T_work, parent, child, old_rotation_edges);
+                    before_rotation = captureFingerprint();
+                    rotated = rotateEdgeState(parent, child, rotate_dir);
+                    if (!rotated) {
+                        rollbackRotation();
                         continue;
                     }
 
@@ -6105,10 +6404,17 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 	                        rollbackRotation();
 	                        continue;
 	                    }
+	                    if (next_conflicts_hint == 0 && TreesEqual(T_work, T_end)) {
+	                        rollbackRotation();
+	                        return commitResult(true);
+	                    }
 
-                    EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
-                    Key128 child_pair_key = child_keys.pair_key;
-                    bool unique_pair_state = seen_child_pair_keys.insert(child_pair_key).second;
+	                    EmptySKeys child_keys = makeEmptySKeys(T_work, T_end, child_k);
+	                    Key128 child_pair_key = child_keys.pair_key;
+	                    if (next_conflicts_hint >= 0) {
+	                        g_conflict_cache.try_emplace(child_pair_key, next_conflicts_hint);
+	                    }
+	                    bool unique_pair_state = seen_child_pair_keys.insert(child_pair_key).second;
                     if (!unique_pair_state) {
                         rollbackRotation();
                         if (g_profile.enabled) {
@@ -6127,9 +6433,22 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                         }
                         return commitResult(true);
                     }
+                    bool child_pair_known = false;
+                    if (tryBoundsPrune(g_kbounds, child_pair_key, child_k, child_pair_known)) {
+                        if (child_pair_known) {
+                            rollbackRotation();
+                            return commitResult(true);
+                        }
+                        if (g_profile.enabled) {
+                            g_profile.s_empty_duplicate_child_states++;
+                        }
+                        rollbackRotation();
+                        continue;
+                    }
 
-                    Key128 child_bounds_key = child_keys.bounds_key;
-                    Key128 child_exact_key = child_keys.exact_key;
+		                    Key128 child_bounds_key = child_keys.bounds_key;
+		                    Key128 child_exact_key = child_keys.exact_key;
+		                    Key128 child_exact_base_key = child_keys.exact_base_key;
                     bool unique_child = seen_child_state_keys.insert(child_exact_key).second;
                     if (unique_child) {
                         auto child_memo_it = g_memo_tds.find(child_exact_key);
@@ -6157,20 +6476,18 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
                             rollbackRotation();
                             continue;
                         }
-                        RotationCandidate cand{edge,
-                                              INT_MAX,
-                                              INT_MAX,
-                                              -1,
-                                              INT_MAX,
-                                              child_exact_key,
-	                                              child_bounds_key,
-	                                              child_pair_key,
-	                                              0};
+			                        RotationCandidate cand;
+			                        cand.edge = edge;
+			                        cand.child_exact_key = child_exact_key;
+			                        cand.child_exact_base_key = child_exact_base_key;
+			                        cand.child_bounds_key = child_bounds_key;
+		                        cand.child_pair_key = child_pair_key;
 	                        if (populateCandidate(cand, T_work, next_conflicts_hint)) {
-                            if (cand.child_lb > child_k) {
-                                rollbackRotation();
-                                continue;
-                            }
+	                            if (cand.child_lb > child_k) {
+	                                noteEmptyChildLowerBoundPrune(cand);
+	                                rollbackRotation();
+	                                continue;
+	                            }
 	                            if (cand.next_conflicts < current_conflicts) {
 	                                cand.free_hint = 0;
 	                            } else if (use_free_hint) {
@@ -6210,57 +6527,74 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
 
             for (auto&& it : best_signature_states) {
                 auto& cand = it.second;
-                if (cand.child_lb > child_k) {
-                    continue;
-                }
-                if (cand.next_conflicts < current_conflicts || cand.free_hint) {
-                    candidates.push_back(cand);
-                } else {
-                    plateau_candidates.push_back(cand);
-                }
-            }
-        }
+	                if (cand.child_lb > child_k) {
+	                    noteEmptyChildLowerBoundPrune(cand);
+	                    continue;
+	                }
+		                if (cand.next_conflicts < current_conflicts || cand.free_hint) {
+		                    candidates.push_back(cand);
+		                } else {
+		                    plateau_candidates.push_back(cand);
+		                }
+	            }
+	        }
 
-        if (g_profile.enabled) {
-            g_profile.s_empty_progress_candidates += (long long)candidates.size();
-            g_profile.s_empty_plateau_candidates += (long long)plateau_candidates.size();
-        }
-        std::sort(candidates.begin(), candidates.end(), byPromise);
-        std::sort(plateau_candidates.begin(), plateau_candidates.end(), byPromise);
-        candidates.insert(candidates.end(), plateau_candidates.begin(), plateau_candidates.end());
+	        if (g_profile.enabled) {
+	            g_profile.s_empty_progress_candidates += (long long)candidates.size();
+	            g_profile.s_empty_plateau_candidates += (long long)plateau_candidates.size();
+	        }
+	        std::sort(candidates.begin(), candidates.end(), byPromise);
+	        std::sort(plateau_candidates.begin(), plateau_candidates.end(), byPromise);
+	        candidates.insert(candidates.end(), plateau_candidates.begin(), plateau_candidates.end());
 
-        for (const auto& cand : candidates) {
-            int rotate_dir = 0;
-            bool rotated = false;
-            int parent = cand.edge.first;
-            int child = cand.edge.second;
-            auto rollbackRotation = [&]() {
-                if (rotated) {
-                    undoRotateState(child, rotate_dir);
-                    rotated = false;
-                }
-            };
-            try {
-                rotated = rotateEdgeState(parent, child, rotate_dir);
-                if (!rotated) {
-                    rollbackRotation();
-                    continue;
-                }
+	        for (const auto& cand : candidates) {
+	            int rotate_dir = 0;
+	            bool rotated = false;
+	            FingerprintSnapshot before_rotation{};
+	            int parent = cand.edge.first;
+	            int child = cand.edge.second;
+	            auto rollbackRotation = [&]() {
+	                if (rotated) {
+	                    undoRotateState(child, rotate_dir);
+	                    restoreFingerprint(before_rotation);
+	                    rotated = false;
+	                }
+	            };
+	            try {
+	                before_rotation = captureFingerprint();
+	                rotated = rotateEdgeState(parent, child, rotate_dir);
+	                if (!rotated) {
+	                    rollbackRotation();
+	                    continue;
+	                }
 
-                if (TreeDistS(T_work, T_end, child_k, empty_S)) {
-                    debugPrint("TreeDistS: Found solution with rotation");
-                    rollbackRotation();
-                    return commitResult(true);
-                }
-                rollbackRotation();
-            } catch (const SearchAbortException&) {
-                throw;
-            } catch (...) {
-                rollbackRotation();
-                continue;
-            }
-        }
-        return commitResult(false);
+	                if (cand.next_conflicts == 0 && TreesEqual(T_work, T_end)) {
+	                    rollbackRotation();
+	                    return commitResult(true);
+	                }
+
+	                const bool has_child_exact_key =
+	                    cand.child_exact_key.hi != 0 || cand.child_exact_key.lo != 0;
+	                const EmptySKeys child_precomputed_keys{
+	                    cand.child_pair_key,
+	                    cand.child_bounds_key,
+	                    cand.child_exact_key,
+	                    cand.child_exact_base_key};
+	                if (TreeDistSImpl(T_work, T_end, child_k, empty_S,
+	                                  has_child_exact_key ? &child_precomputed_keys : nullptr)) {
+	                    debugPrint("TreeDistS: Found solution with rotation");
+	                    rollbackRotation();
+	                    return commitResult(true);
+	                }
+	                rollbackRotation();
+	            } catch (const SearchAbortException&) {
+	                throw;
+	            } catch (...) {
+	                rollbackRotation();
+	                continue;
+	            }
+	        }
+	        return commitResult(false);
     } else {
         //                       (a) include neither, (b) include eᵢ only, (c) include eᵢ′ only
         //                       (skip choices that pick a non-edge or conflict with independence)."
@@ -6305,11 +6639,11 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
             [&](const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& active_pairs) -> bool {
             std::vector<std::pair<int, int>> chosen;
             std::unordered_set<int> used_nodes;
-            bool use_mask_memo = (T_work.original_nodes.size() <= 63);
+            bool use_mask_memo = (T_work.original_inorder.size() <= 63);
             std::unordered_map<int, int> node_to_bit;
             if (use_mask_memo) {
                 int bit = 0;
-                for (int node : T_work.original_nodes) {
+                for (int node : T_work.original_inorder) {
                     node_to_bit[node] = bit++;
                 }
             }
@@ -6579,37 +6913,56 @@ bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end
     return commitResult(false);
 }
 
+bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
+               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
+    initProfile();
+    return TreeDistSImpl(T_init, T_end, k, S, nullptr);
+}
+
 // Definition: Find the smallest k such that FlipDistTree returns true
 // Parameters: T_init/T_final: trees; max_k: search cap
 // Returns: minimum k, or -1 if not found up to max_k
 // Errors: returns -1 on invalid inputs or failures during search
 int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int max_k) {
     if (max_k < 0) return -1;
-    const size_t n_for_reserve = T_init.original_nodes.size();
+    const size_t n_for_reserve = T_init.original_inorder.size();
     g_active_problem_size = n_for_reserve;
+    const Key128 pair_key = makeKeyPair(T_init, T_final);
+    auto existing_bounds_it = g_kbounds.find(pair_key);
+    if (existing_bounds_it != g_kbounds.end()) {
+        KBounds& existing_bounds = existing_bounds_it->second;
+        if (existing_bounds.min_success >= 0 &&
+            existing_bounds.max_fail >= existing_bounds.min_success) {
+            existing_bounds.max_fail = existing_bounds.min_success - 1;
+        }
+        if (existing_bounds.min_success >= 0 &&
+            existing_bounds.max_fail >= existing_bounds.min_success - 1 &&
+            existing_bounds.min_success <= max_k) {
+            return existing_bounds.min_success;
+        }
+    }
     if (n_for_reserve >= 23) {
-        const size_t state_reserve = n_for_reserve >= 25 ? 1200000ULL : (n_for_reserve == 24 ? 800000ULL : 650000ULL);
+        const size_t state_reserve = n_for_reserve >= 25 ? 6000000ULL : (n_for_reserve == 24 ? 800000ULL : 650000ULL);
         const size_t side_reserve = state_reserve / 2;
         g_kbounds.max_load_factor(0.5f);
         g_memo_tds.max_load_factor(0.5f);
-        g_tds_bounds.max_load_factor(0.5f);
-        g_conflict_cache.max_load_factor(0.5f);
-        g_target_child_range_cache.max_load_factor(0.5f);
+	        g_tds_bounds.max_load_factor(0.5f);
+	        g_conflict_cache.max_load_factor(0.5f);
+	        g_target_child_range_cache.max_load_factor(0.5f);
         g_free_edge_cache.max_load_factor(0.5f);
         g_empty_s_child_cache.max_load_factor(0.5f);
         g_free_edge_partition_side_budget_cache.max_load_factor(0.5f);
         g_pair_incumbent_upper.max_load_factor(0.5f);
         g_kbounds.reserve(state_reserve);
         g_memo_tds.reserve(state_reserve);
-        g_tds_bounds.reserve(state_reserve);
-        g_conflict_cache.reserve(state_reserve);
-        g_target_child_range_cache.reserve(side_reserve);
+	        g_tds_bounds.reserve(state_reserve);
+	        g_conflict_cache.reserve(state_reserve);
+	        g_target_child_range_cache.reserve(side_reserve);
         g_free_edge_cache.reserve(state_reserve);
         g_empty_s_child_cache.reserve(side_reserve);
         g_free_edge_partition_side_budget_cache.reserve(side_reserve);
         g_pair_incumbent_upper.reserve(side_reserve);
     }
-    const Key128 pair_key = makeKeyPair(T_init, T_final);
     KBounds &bounds = g_kbounds[pair_key];
     if (bounds.min_success >= 0 && bounds.max_fail >= bounds.min_success) {
         bounds.max_fail = bounds.min_success - 1;
@@ -6621,20 +6974,20 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
     }
 
     int lo = std::max(0, bounds.max_fail + 1);
-    // Exact lower bound: every conflicting edge must be removed at least once
+    // Exact lower bound: every conflicting edge must be removed at least once.
     lo = std::max(lo, countConflictEdges(T_init, T_final));
     if (lo > max_k) {
         return -1;
     }
 
-    int hi = -1;
-    if (bounds.min_success >= 0 && bounds.min_success <= max_k) {
-        hi = bounds.min_success;
-    }
+	    int hi = -1;
+	    if (bounds.min_success >= 0 && bounds.min_success <= max_k) {
+	        hi = bounds.min_success;
+	    }
 
-    // Find a feasible upper bound progressively instead of probing max_k directly
-    if (hi < 0) {
-        int probe = lo;
+	    // Find a feasible upper bound progressively instead of probing max_k directly
+	    if (hi < 0) {
+	        int probe = lo;
         const int linear_prefix_end = std::min(max_k, lo + minKLinearPrefixProbes(T_init, T_final));
         const int linear_abort_ms = minKLinearAbortMs(T_init);
         while (true) {
@@ -6643,8 +6996,8 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
             const auto probe_t1 = std::chrono::steady_clock::now();
             const double probe_ms =
                 std::chrono::duration<double, std::milli>(probe_t1 - probe_t0).count();
-            if (probe_ok) {
-                hi = probe;
+	            if (probe_ok) {
+	                hi = probe;
                 if (bounds.min_success < 0 || probe < bounds.min_success) {
                     bounds.min_success = probe;
                 }
@@ -6675,11 +7028,12 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
         return -1;
     }
 
-    while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;
-        if (FlipDistTree(T_init, T_final, mid)) {
-            hi = mid;
-            if (bounds.min_success < 0 || mid < bounds.min_success) {
+	    while (lo < hi) {
+	        int mid = lo + (hi - lo) / 2;
+	        const bool mid_ok = FlipDistTree(T_init, T_final, mid);
+	        if (mid_ok) {
+	            hi = mid;
+	            if (bounds.min_success < 0 || mid < bounds.min_success) {
                 bounds.min_success = mid;
             }
         } else {
@@ -6692,6 +7046,15 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
         bounds.min_success = lo;
     }
     if (lo - 1 > bounds.max_fail) bounds.max_fail = lo - 1;
+    KBounds& reverse_bounds = g_kbounds[makeKeyPair(T_final, T_init)];
+    if (reverse_bounds.min_success < 0 || lo < reverse_bounds.min_success) {
+        reverse_bounds.min_success = lo;
+    }
+    if (lo - 1 > reverse_bounds.max_fail) reverse_bounds.max_fail = lo - 1;
+    if (reverse_bounds.min_success >= 0 &&
+        reverse_bounds.max_fail >= reverse_bounds.min_success) {
+        reverse_bounds.max_fail = reverse_bounds.min_success - 1;
+    }
     return lo;
 }
 

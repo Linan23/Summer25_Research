@@ -8,9 +8,6 @@
 #include <iostream>
 #include <sstream>
 
-// Debug flag
-const bool DEBUG = false;
-
 ProfileStats g_profile;
 
 std::unordered_map<Key128, bool, Key128Hash> g_memo_flipdist;
@@ -125,6 +122,30 @@ static uint64_t hashPairSet(const std::vector<std::pair<std::pair<int,int>, std:
 void dedupeSPairs(std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& pairs) {
     std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> out;
     out.reserve(pairs.size());
+    if (pairs.size() <= 16) {
+        std::vector<Key128> seen;
+        seen.reserve(pairs.size());
+        for (const auto& p : pairs) {
+            auto cp = canonicalPair(p);
+            uint64_t k1 = edgeKey(cp.first);
+            uint64_t k2 = edgeKey(cp.second);
+            if (k2 < k1) std::swap(k1, k2);
+            Key128 key{k1, k2};
+            bool duplicate = false;
+            for (const auto& prior : seen) {
+                if (prior == key) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                seen.push_back(key);
+                out.push_back(cp);
+            }
+        }
+        pairs.swap(out);
+        return;
+    }
     std::unordered_set<Key128, Key128Hash> seen;
     for (const auto& p : pairs) {
         auto cp = canonicalPair(p);
@@ -260,11 +281,16 @@ EmptySKeys makeEmptySKeys(const VectorRangeTreeMap& T_init,
     mixKey(keys.bounds_key, empty_s_hash);
     mixKey(keys.bounds_key, 0);
 
-    keys.exact_key = makeTreePairKeyFromFingerprints(4, a, b);
-    mixKey(keys.exact_key, empty_s_hash);
-    mixKey(keys.exact_key, 0);
-    mixKey(keys.exact_key, static_cast<uint64_t>(k));
+    keys.exact_base_key = makeTreePairKeyFromFingerprints(4, a, b);
+    mixKey(keys.exact_base_key, empty_s_hash);
+    mixKey(keys.exact_base_key, 0);
+    keys.exact_key = makeEmptySExactKeyFromBase(keys.exact_base_key, k);
     return keys;
+}
+
+Key128 makeEmptySExactKeyFromBase(Key128 exact_base_key, int k) {
+    mixKey(exact_base_key, static_cast<uint64_t>(k));
+    return exact_base_key;
 }
 
 EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap& T_init,
@@ -295,62 +321,6 @@ Key128 makeKeyIBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& 
     return key;
 }
 
-bool tryBoundsPrune(const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
-                           const Key128& key, int k, bool& value_out) {
-    auto it = bounds_map.find(key);
-    if (it == bounds_map.end()) return false;
-    const auto& b = it->second;
-    if (b.min_success >= 0 && k >= b.min_success) {
-        value_out = true;
-        return true;
-    }
-    if (k <= b.max_fail) {
-        value_out = false;
-        return true;
-    }
-    return false;
-}
-
-void updateBounds(std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
-                         const Key128& key, int k, bool value) {
-    auto& b = bounds_map[key];
-    bool changed = false;
-    if (value) {
-        if (b.min_success < 0 || k < b.min_success) {
-            b.min_success = k;
-            changed = true;
-        }
-        const int forced_fail = k - 1;
-        if (forced_fail < b.max_fail) {
-            b.max_fail = forced_fail;
-            changed = true;
-        }
-        if (b.max_fail >= b.min_success) {
-            const int needed_max_fail = b.min_success - 1;
-            if (b.max_fail != needed_max_fail) {
-                b.max_fail = needed_max_fail;
-                changed = true;
-            }
-        }
-    } else {
-        if (k > b.max_fail) {
-            b.max_fail = k;
-            changed = true;
-        }
-    }
-    (void)bounds_map;
-    (void)key;
-    (void)k;
-    (void)value;
-}
-
-int requiredBudgetFromBounds(const std::unordered_map<Key128, KBounds, Key128Hash>& bounds_map,
-                                    const Key128& key) {
-    auto it = bounds_map.find(key);
-    if (it == bounds_map.end()) return 0;
-    return std::max(0, it->second.max_fail + 1);
-}
-
 void resetMemo() {
     g_memo_flipdist.clear();
     g_memo_tdi.clear();
@@ -363,6 +333,9 @@ void resetMemo() {
 
 void initProfile() {
     if (g_profile.enabled) return;
+    static bool profile_env_checked = false;
+    if (profile_env_checked) return;
+    profile_env_checked = true;
     const char *env = std::getenv("FLIPDIST_PROFILE");
     if (env && std::string(env) == "1") {
         g_profile.enabled = true;
@@ -694,19 +667,6 @@ bool profileAbortRequested() {
 void throwIfProfileAbort() {
     if (profileAbortRequested()) {
         throw SearchAbortException{};
-    }
-}
-
-ScopedTimer::ScopedTimer(double *a) : acc(a) {
-    if (g_profile.enabled && acc) {
-        t0 = std::chrono::steady_clock::now();
-    }
-}
-
-ScopedTimer::~ScopedTimer() {
-    if (g_profile.enabled && acc) {
-        auto t1 = std::chrono::steady_clock::now();
-        *acc += std::chrono::duration<double, std::milli>(t1 - t0).count();
     }
 }
 
