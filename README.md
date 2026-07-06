@@ -1,6 +1,6 @@
 # Exact Flip Distance Research Code
 
-FlipDist is a research implementation of an exact solver for flip distance on rooted binary trees, equivalently rotation distance between binary trees or flip distance between triangulations of a convex polygon. The solver is built on the fixed-parameter algorithmic framework of Li and Xia, "An O(3.82^k) Time FPT Algorithm for Convex Flip Distance" (STACS 2023).
+FlipDist is a research implementation of an exact solver for flip distance on rooted binary trees, equivalently rotation distance between binary trees or flip distance between triangulations of a convex polygon. The solver is built on the fixed-parameter algorithmic framework of Li and Xia, ["An O(3.82^k) Time FPT Algorithm for Convex Flip Distance"](https://d-nb.info/1367146364/34) (STACS 2023).
 
 The repository is organized for research handoff and reproducibility. It contains buildable C++ solver sources, a Java triangulation oracle for independent checks, benchmark and parity tools, curated current results, and documentation for future extensions.
 
