@@ -81,6 +81,9 @@ struct EmptySCoreSummary {
     std::string signature;
 };
 
+// Purpose: Copies the tree state needed by TreeDistS without rebuilding derived data.
+// Inputs: T (const VectorRangeTreeMap&).
+// Output: The resulting VectorRangeTreeMap value.
 VectorRangeTreeMap treeDistSWorkCopy(const VectorRangeTreeMap& T) {
     VectorRangeTreeMap copy;
     copy.ranges = T.ranges;
@@ -178,12 +181,18 @@ struct BranchyCoreSummary {
 struct PrefixPairRequestKey {
     Key128 tree_key{};
     std::uint64_t diagonal_key = 0;
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const PrefixPairRequestKey& o) const {
         return tree_key == o.tree_key && diagonal_key == o.diagonal_key;
     }
 };
 
 struct PrefixPairRequestKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const PrefixPairRequestKey& k) const {
         std::size_t h1 = Key128Hash{}(k.tree_key);
         std::size_t h2 = std::hash<std::uint64_t>{}(k.diagonal_key);
@@ -207,6 +216,9 @@ struct FreeEdgePartitionStructureKey {
     std::uint32_t parent_range_r = 0;
     std::uint32_t child_range_l = 0;
     std::uint32_t child_range_r = 0;
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionStructureKey& o) const {
         return pair_key == o.pair_key &&
                parent_range_l == o.parent_range_l && parent_range_r == o.parent_range_r &&
@@ -215,6 +227,9 @@ struct FreeEdgePartitionStructureKey {
 };
 
 struct FreeEdgePartitionStructureKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const FreeEdgePartitionStructureKey& k) const {
         std::size_t h = Key128Hash{}(k.pair_key);
         h ^= std::hash<std::uint32_t>{}(k.parent_range_l) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -245,6 +260,9 @@ struct TargetPartitionRangeCacheKey {
     std::uint32_t child_range_l = 0;
     std::uint32_t child_range_r = 0;
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const TargetPartitionRangeCacheKey& o) const {
         return tree_key == o.tree_key &&
                child_range_l == o.child_range_l &&
@@ -253,6 +271,9 @@ struct TargetPartitionRangeCacheKey {
 };
 
 struct TargetPartitionRangeCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const TargetPartitionRangeCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.tree_key);
         h ^= std::hash<std::uint32_t>{}(k.child_range_l) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -270,12 +291,18 @@ struct TargetPartitionRangeCacheEntry {
 struct FreeEdgePartitionSideCacheKey {
     FreeEdgePartitionStructureKey structure_key{};
     Key128 bounds_key{};
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionSideCacheKey& o) const {
         return structure_key == o.structure_key && bounds_key == o.bounds_key;
     }
 };
 
 struct FreeEdgePartitionSideCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const FreeEdgePartitionSideCacheKey& k) const {
         std::size_t h = FreeEdgePartitionStructureKeyHash{}(k.structure_key);
         h ^= Key128Hash{}(k.bounds_key) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -302,6 +329,9 @@ struct EmptySChildSignature {
     Key128 child_pair_key{};
     Key128 child_bounds_key{};
     int next_conflicts_bucket = INT_MAX;
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const EmptySChildSignature& o) const {
         return child_pair_key == o.child_pair_key &&
                child_bounds_key == o.child_bounds_key &&
@@ -310,6 +340,9 @@ struct EmptySChildSignature {
 };
 
 struct EmptySChildSignatureHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const EmptySChildSignature& s) const {
         std::size_t h = Key128Hash{}(s.child_pair_key);
         h ^= Key128Hash{}(s.child_bounds_key) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -335,19 +368,25 @@ struct EmptySChildCacheItem {
 
 struct EmptySChildCacheEntry {
     std::vector<EmptySChildCacheItem> items;
-    // Highest child budget whose candidate set is fully represented.
+    // Cached candidates are safe to reuse only through the largest fully enumerated child budget.
     int coverage_child_k = -1;
 };
 
 struct EmptySChildCacheKey {
     Key128 pair_key{};
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const EmptySChildCacheKey& o) const {
         return pair_key == o.pair_key;
     }
 };
 
 struct EmptySChildCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const EmptySChildCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.pair_key);
         return h;
@@ -358,6 +397,9 @@ struct FreeEdgePartitionSplitSignatureCacheKey {
     Key128 s1_bounds_key{};
     Key128 s2_bounds_key{};
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionSplitSignatureCacheKey& o) const {
         return s1_bounds_key == o.s1_bounds_key &&
                s2_bounds_key == o.s2_bounds_key;
@@ -365,6 +407,9 @@ struct FreeEdgePartitionSplitSignatureCacheKey {
 };
 
 struct FreeEdgePartitionSplitSignatureCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const FreeEdgePartitionSplitSignatureCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.s1_bounds_key);
         h ^= Key128Hash{}(k.s2_bounds_key) + 0x517cc1b727220a95ULL + (h << 5) + (h >> 3);
@@ -372,11 +417,17 @@ struct FreeEdgePartitionSplitSignatureCacheKeyHash {
     }
 };
 
+// Purpose: Orders 128-bit keys lexicographically.
+// Inputs: a (const Key128&); b (const Key128&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool key128Less(const Key128& a, const Key128& b) {
     if (a.hi != b.hi) return a.hi < b.hi;
     return a.lo < b.lo;
 }
 
+// Purpose: Refreshes original preorder in place.
+// Inputs: T (VectorRangeTreeMap&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool refreshOriginalPreorderInPlace(VectorRangeTreeMap& T) {
     if (T.root < 0 || T.original_inorder.empty() || !T.isOriginal(T.root)) {
         return false;
@@ -433,6 +484,9 @@ bool refreshOriginalPreorderInPlace(VectorRangeTreeMap& T) {
     return T.original_preorder.size() == expected;
 }
 
+// Purpose: Builds split signature cache key.
+// Inputs: a (const Key128&); b (const Key128&).
+// Output: The resulting FreeEdgePartitionSplitSignatureCacheKey value.
 FreeEdgePartitionSplitSignatureCacheKey makeSplitSignatureCacheKey(const Key128& a,
                                                                    const Key128& b) {
     if (key128Less(b, a)) {
@@ -445,6 +499,9 @@ struct FreeEdgePartitionSplitDecisionCacheKey {
     FreeEdgePartitionSideCacheKey side_cache_key{};
     int remaining_budget = -1;
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionSplitDecisionCacheKey& o) const {
         return side_cache_key == o.side_cache_key &&
                remaining_budget == o.remaining_budget;
@@ -452,6 +509,9 @@ struct FreeEdgePartitionSplitDecisionCacheKey {
 };
 
 struct FreeEdgePartitionSplitDecisionCacheKeyHash {
+        // Purpose: Hashes a key or state signature for unordered containers.
+        // Inputs: The key or signature supplied to the call operator.
+        // Output: A hash code consistent with the corresponding equality operator.
         std::size_t operator()(const FreeEdgePartitionSplitDecisionCacheKey& k) const {
         std::size_t h = FreeEdgePartitionSideCacheKeyHash{}(k.side_cache_key);
         h ^= std::hash<int>{}(k.remaining_budget) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -479,6 +539,9 @@ struct FreeEdgePartitionSideBudgetRangeCacheKey {
     std::uint32_t range_lo = 0;
     std::uint32_t range_hi = 0;
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionSideBudgetRangeCacheKey& o) const {
         return side_pair_key == o.side_pair_key &&
                side_bounds_key == o.side_bounds_key &&
@@ -488,6 +551,9 @@ struct FreeEdgePartitionSideBudgetRangeCacheKey {
 };
 
 struct FreeEdgePartitionSideBudgetRangeCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const FreeEdgePartitionSideBudgetRangeCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.side_pair_key);
         h ^= Key128Hash{}(k.side_bounds_key) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -506,6 +572,9 @@ struct FreeEdgePartitionSideBudgetCacheKey {
     Key128 side_pair_key{};
     Key128 side_bounds_key{};
 
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const FreeEdgePartitionSideBudgetCacheKey& o) const {
         return side_pair_key == o.side_pair_key &&
                side_bounds_key == o.side_bounds_key;
@@ -513,6 +582,9 @@ struct FreeEdgePartitionSideBudgetCacheKey {
 };
 
 struct FreeEdgePartitionSideBudgetCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const FreeEdgePartitionSideBudgetCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.side_pair_key);
         h ^= Key128Hash{}(k.side_bounds_key) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -529,12 +601,18 @@ struct FreeEdgePartitionSideBudgetCacheEntry {
 struct CommonEdgeDecomposeCacheKey {
     Key128 pair_key{};
     int budget = 0;
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const CommonEdgeDecomposeCacheKey& o) const {
         return pair_key == o.pair_key && budget == o.budget;
     }
 };
 
 struct CommonEdgeDecomposeCacheKeyHash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const CommonEdgeDecomposeCacheKey& k) const {
         std::size_t h = Key128Hash{}(k.pair_key);
         h ^= std::hash<int>{}(k.budget) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -619,6 +697,9 @@ BranchyCoreSummary analyzeBranchyCoreSummary(const VectorRangeTreeMap& start,
                                              int exact_m);
 
 #if FLIPDIST_REUSE_PROFILE_COUNTERS
+// Purpose: Records profile tree dist s state.
+// Inputs: bounds_key (const Key128&); s_norm_empty (bool).
+// Output: No return value; updates referenced outputs or shared state.
 FLIPDIST_NOINLINE void recordProfileTreeDistSState(const Key128& bounds_key,
                                                    bool s_norm_empty) {
     if (g_profile_tds_base_states_seen.insert(bounds_key).second) {
@@ -635,6 +716,9 @@ FLIPDIST_NOINLINE void recordProfileTreeDistSState(const Key128& bounds_key,
     }
 }
 
+// Purpose: Records profile partition structure.
+// Inputs: structure_cache_key (const FreeEdgePartitionStructureKey&).
+// Output: No return value; updates referenced outputs or shared state.
 FLIPDIST_NOINLINE void recordProfilePartitionStructure(
     const FreeEdgePartitionStructureKey& structure_cache_key) {
     if (g_profile_partition_structures_seen.insert(structure_cache_key).second) {
@@ -644,6 +728,9 @@ FLIPDIST_NOINLINE void recordProfilePartitionStructure(
     }
 }
 
+// Purpose: Records profile partition side state.
+// Inputs: side_cache_key (const FreeEdgePartitionSideCacheKey&).
+// Output: No return value; updates referenced outputs or shared state.
 FLIPDIST_NOINLINE void recordProfilePartitionSideState(
     const FreeEdgePartitionSideCacheKey& side_cache_key) {
     if (g_profile_partition_side_states_seen.insert(side_cache_key).second) {
@@ -653,6 +740,9 @@ FLIPDIST_NOINLINE void recordProfilePartitionSideState(
     }
 }
 
+// Purpose: Records profile partition split signature.
+// Inputs: split_signature_cache_key (const FreeEdgePartitionSplitSignatureCacheKey&).
+// Output: No return value; updates referenced outputs or shared state.
 FLIPDIST_NOINLINE void recordProfilePartitionSplitSignature(
     const FreeEdgePartitionSplitSignatureCacheKey& split_signature_cache_key) {
     if (g_profile_partition_split_signatures_seen.insert(split_signature_cache_key).second) {
@@ -663,6 +753,9 @@ FLIPDIST_NOINLINE void recordProfilePartitionSplitSignature(
 }
 #endif
 
+// Purpose: Reports whether the articulation arm reduce feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool articulationArmReduceEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -673,6 +766,9 @@ bool articulationArmReduceEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the configured articulation arm max edges value.
+// Inputs: None.
+// Output: The computed value or status code.
 int articulationArmMaxEdges() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -690,6 +786,9 @@ int articulationArmMaxEdges() {
     return cached;
 }
 
+// Purpose: Retrieves the configured articulation-arm log path.
+// Inputs: None.
+// Output: A reference to the resulting std::string.
 const std::string& articulationArmLogFilePath() {
     static std::string cached = []() {
         const char* env = std::getenv("FLIPDIST_ARTIC_ARM_LOG_FILE");
@@ -698,10 +797,16 @@ const std::string& articulationArmLogFilePath() {
     return cached;
 }
 
+// Purpose: Reports whether the articulation arm log feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool articulationArmLogEnabled() {
     return !articulationArmLogFilePath().empty();
 }
 
+// Purpose: Reports whether the tdi prefix prune feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdiPrefixPruneEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -712,6 +817,9 @@ bool tdiPrefixPruneEnabled() {
     return cached == 1;
 }
 
+// Purpose: Counts common edges.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); stop_after (int).
+// Output: The computed value or status code.
 int countCommonEdges(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end,
                      int stop_after = 1) {
     if (T_init.original_inorder.empty() || T_end.original_inorder.empty()) {
@@ -755,6 +863,9 @@ int countCommonEdges(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap&
     return count;
 }
 
+// Purpose: Retrieves the configured tds common edge min count value.
+// Inputs: None.
+// Output: The computed value or status code.
 int tdsCommonEdgeMinCount() {
     static int cached = -1;
     if (cached >= 0) {
@@ -773,6 +884,9 @@ int tdsCommonEdgeMinCount() {
     return cached;
 }
 
+// Purpose: Checks, with caching, whether a tree pair meets the common-edge threshold.
+// Inputs: T_a (const VectorRangeTreeMap&); T_b (const VectorRangeTreeMap&); threshold (int).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool pairHasCommonEdgesCached(const VectorRangeTreeMap& T_a,
                               const VectorRangeTreeMap& T_b,
                               int threshold) {
@@ -787,6 +901,9 @@ bool pairHasCommonEdgesCached(const VectorRangeTreeMap& T_a,
     return has_common;
 }
 
+// Purpose: Retrieves the configured tdi prefix prune min s size value.
+// Inputs: None.
+// Output: The computed value or status code.
 int tdiPrefixPruneMinSSize() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -807,6 +924,9 @@ int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
                                const Key128& key);
 int pairIncumbentUpper(const Key128& pair_key);
 
+// Purpose: Reports whether the tds partition cache feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsPartitionCacheEnabled() {
     static int cached_mode = -1;
     if (cached_mode < 0) {
@@ -826,6 +946,9 @@ bool tdsPartitionCacheEnabled() {
     return n >= 29;
 }
 
+// Purpose: Reports whether the tds partition split cache feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsPartitionSplitCacheEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -841,6 +964,9 @@ bool tdsPartitionSplitCacheEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether minimum-budget partition search is enabled for the given size.
+// Inputs: n (const std::size_t).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsPartitionMinBudgetSearchEnabledForSize(const std::size_t n) {
     static int cached = -1;
     if (cached >= 0) {
@@ -861,6 +987,9 @@ bool tdsPartitionMinBudgetSearchEnabledForSize(const std::size_t n) {
     return n >= 25;
 }
 
+// Purpose: Reports whether the tds partition lower first feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsPartitionLowerFirstEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -873,6 +1002,9 @@ bool tdsPartitionLowerFirstEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the configured tds partition min side mode value.
+// Inputs: None.
+// Output: The computed value or status code.
 int tdsPartitionMinSideMode() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) return cached;
@@ -896,6 +1028,9 @@ int tdsPartitionMinSideMode() {
     return cached;
 }
 
+// Purpose: Reports whether the empty s dedup feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool emptySDedupEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -908,6 +1043,9 @@ bool emptySDedupEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the configured empty s order mode value.
+// Inputs: None.
+// Output: The computed value or status code.
 int emptySOrderMode() {
     static int cached_mode = INT_MIN;
     if (cached_mode == INT_MIN) {
@@ -932,6 +1070,9 @@ int emptySOrderMode() {
     return cached_mode;
 }
 
+// Purpose: Reports whether the empty s tight no cache feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool emptySTightNoCacheEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -944,6 +1085,9 @@ bool emptySTightNoCacheEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the empty s root shape free hint gate feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool emptySRootShapeFreeHintGateEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -962,6 +1106,9 @@ struct EmptySShapeStats {
     double avg_depth = 0.0;
 };
 
+// Purpose: Summarizes structural statistics used to rank unconstrained states.
+// Inputs: T (const VectorRangeTreeMap&).
+// Output: The resulting EmptySShapeStats value.
 EmptySShapeStats emptySShapeStats(const VectorRangeTreeMap& T) {
     EmptySShapeStats stats;
     long long depth_sum = 0;
@@ -988,6 +1135,9 @@ EmptySShapeStats emptySShapeStats(const VectorRangeTreeMap& T) {
     return stats;
 }
 
+// Purpose: Reports whether disable empty s free hints for root shape.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); pair_key (const Key128&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool shouldDisableEmptySFreeHintsForRootShape(const VectorRangeTreeMap& start,
                                               const VectorRangeTreeMap& target,
                                               const Key128& pair_key) {
@@ -1013,11 +1163,17 @@ bool shouldDisableEmptySFreeHintsForRootShape(const VectorRangeTreeMap& start,
 
 struct EmptySFreeHintDisableGuard {
     bool active = false;
+    // Purpose: Temporarily disables free-edge hints for an unconstrained subtree.
+    // Inputs: enabled: whether this scope should increment the disable depth.
+    // Output: A guard that restores the prior depth when destroyed.
     explicit EmptySFreeHintDisableGuard(bool enabled) : active(enabled) {
         if (active) {
             ++g_empty_s_disable_free_hint_depth;
         }
     }
+    // Purpose: Restores the free-edge hint disable depth changed by this guard.
+    // Inputs: None.
+    // Output: No return value; updates the thread-local disable depth.
     ~EmptySFreeHintDisableGuard() {
         if (active) {
             --g_empty_s_disable_free_hint_depth;
@@ -1025,6 +1181,9 @@ struct EmptySFreeHintDisableGuard {
     }
 };
 
+// Purpose: Reports whether the tds inflight pruning feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsInflightPruningEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -1050,6 +1209,9 @@ bool tdsInflightPruningEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the tdi inflight pruning feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdiInflightPruningEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -1067,6 +1229,9 @@ bool tdiInflightPruningEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the tds common edge rotate pair feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsCommonEdgeRotatePairEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -1084,6 +1249,9 @@ bool tdsCommonEdgeRotatePairEnabled() {
     return cached == 1;
 }
 
+// Purpose: Collects common edges by target.
+// Inputs: tree (const VectorRangeTreeMap&); target_edges (const std::unordered_set<RP, RPH>&).
+// Output: The resulting std::vector<RP> value.
 static std::vector<RP> collectCommonEdgesByTarget(
     const VectorRangeTreeMap& tree,
     const std::unordered_set<RP, RPH>& target_edges) {
@@ -1123,6 +1291,9 @@ static std::vector<RP> collectCommonEdgesByTarget(
     return edges;
 }
 
+// Purpose: Attempts common edge decompose after one rotation each.
+// Inputs: T_start (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryCommonEdgeDecomposeAfterOneRotationEach(const VectorRangeTreeMap& T_start,
                                                const VectorRangeTreeMap& T_end,
                                                int k) {
@@ -1333,6 +1504,9 @@ bool tryCommonEdgeDecomposeAfterOneRotationEach(const VectorRangeTreeMap& T_star
     return false;
 }
 
+// Purpose: Attempts common edge decompose cached.
+// Inputs: T_start (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int); handled (bool&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryCommonEdgeDecomposeCached(const VectorRangeTreeMap& T_start,
                                  const VectorRangeTreeMap& T_end,
                                  int k,
@@ -1352,6 +1526,9 @@ bool tryCommonEdgeDecomposeCached(const VectorRangeTreeMap& T_start,
     return solvable;
 }
 
+// Purpose: Attempts common edge decompose after one rotation each cached.
+// Inputs: T_start (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryCommonEdgeDecomposeAfterOneRotationEachCached(const VectorRangeTreeMap& T_start,
                                                      const VectorRangeTreeMap& T_end,
                                                      int k) {
@@ -1366,6 +1543,9 @@ bool tryCommonEdgeDecomposeAfterOneRotationEachCached(const VectorRangeTreeMap& 
     return solvable;
 }
 
+// Purpose: Escapes text for safe inclusion in JSON output.
+// Inputs: text (const std::string&).
+// Output: The resulting std::string value.
 std::string jsonEscape(const std::string& text) {
     std::string out;
     out.reserve(text.size() + 8);
@@ -1393,6 +1573,9 @@ std::string jsonEscape(const std::string& text) {
     return out;
 }
 
+// Purpose: Reports whether onical s pair edge.
+// Inputs: edge (std::pair<int, int>).
+// Output: The resulting std::pair<int, int> value.
 std::pair<int, int> canonicalSPairEdge(std::pair<int, int> edge) {
     if (edge.second < edge.first) {
         std::swap(edge.first, edge.second);
@@ -1400,6 +1583,9 @@ std::pair<int, int> canonicalSPairEdge(std::pair<int, int> edge) {
     return edge;
 }
 
+// Purpose: Reports whether onical s pair.
+// Inputs: pair (std::pair<std::pair<int, int>, std::pair<int, int>>).
+// Output: The resulting std::pair<std::pair<int, int>, std::pair<int, int>> value.
 std::pair<std::pair<int, int>, std::pair<int, int>> canonicalSPair(
     std::pair<std::pair<int, int>, std::pair<int, int>> pair) {
     pair.first = canonicalSPairEdge(pair.first);
@@ -1410,6 +1596,9 @@ std::pair<std::pair<int, int>, std::pair<int, int>> canonicalSPair(
     return pair;
 }
 
+// Purpose: Reports whether onical s pair key.
+// Inputs: pair (const std::pair<std::pair<int, int>, std::pair<int, int>>&).
+// Output: The resulting Key128 value.
 Key128 canonicalSPairKey(const std::pair<std::pair<int, int>, std::pair<int, int>>& pair) {
     auto canonical = canonicalSPair(pair);
     const std::uint64_t k1 =
@@ -1421,6 +1610,9 @@ Key128 canonicalSPairKey(const std::pair<std::pair<int, int>, std::pair<int, int
     return Key128{k1, k2};
 }
 
+// Purpose: Appends unique partner pairs from diagonal.
+// Inputs: tree (const VectorRangeTreeMap&); diagonal (const std::pair<int, int>&); out_pairs (std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); seen_pairs (std::unordered_set<Key128, Key128Hash>&); record_prefix_profile (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void appendUniquePartnerPairsFromDiagonal(
     const VectorRangeTreeMap& tree,
     const std::pair<int, int>& diagonal,
@@ -1512,6 +1704,9 @@ void appendUniquePartnerPairsFromDiagonal(
     }
 }
 
+// Purpose: Appends articulation arm log line.
+// Inputs: line (const std::string&).
+// Output: No return value; updates referenced outputs or shared state.
 void appendArticulationArmLogLine(const std::string& line) {
     const std::string& path = articulationArmLogFilePath();
     if (path.empty()) {
@@ -1524,12 +1719,18 @@ void appendArticulationArmLogLine(const std::string& line) {
     out << line << "\n";
 }
 
+// Purpose: Mixes heuristic tag.
+// Inputs: key (Key128); tag (std::uint64_t).
+// Output: The resulting Key128 value.
 Key128 mixHeuristicTag(Key128 key, std::uint64_t tag) {
     key.hi ^= (tag + 0x9e3779b97f4a7c15ULL + (key.hi << 6) + (key.hi >> 2));
     key.lo ^= ((tag << 1) + 0x517cc1b727220a95ULL + (key.lo << 5) + (key.lo >> 3));
     return key;
 }
 
+// Purpose: Encodes the active heuristic configuration for cache-key isolation.
+// Inputs: None.
+// Output: The computed std::uint64_t value.
 std::uint64_t heuristicConfigTag() {
     return (static_cast<std::uint64_t>(smallExactBoundM()) << 40) ^
            (static_cast<std::uint64_t>(localNoPathDepth()) << 32) ^
@@ -1537,13 +1738,20 @@ std::uint64_t heuristicConfigTag() {
            static_cast<std::uint64_t>(branchyCoreLbEnabled() ? 1 : 0);
 }
 
+// Purpose: Builds partition filtered signature.
+// Inputs: pair_key (Key128); s_filtered_key (Key128).
+// Output: The resulting Key128 value.
 Key128 makePartitionFilteredSignature(Key128 pair_key, Key128 s_filtered_key) {
-    Key128 key = mixHeuristicTag(pair_key, 0x7061727469746564ULL); // "partited"
+    // A domain tag prevents partition-filtered signatures from colliding with other heuristic keys.
+    Key128 key = mixHeuristicTag(pair_key, 0x7061727469746564ULL);
     key.hi ^= (s_filtered_key.hi + 0x9e3779b97f4a7c15ULL + (key.hi << 6) + (key.hi >> 2));
     key.lo ^= (s_filtered_key.lo + 0x517cc1b727220a95ULL + (key.lo << 5) + (key.lo >> 3));
     return key;
 }
 
+// Purpose: Retrieves the configured size limit for exact small-subproblem bounds.
+// Inputs: None.
+// Output: The computed value or status code.
 int smallExactBoundM() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -1561,6 +1769,9 @@ int smallExactBoundM() {
     return cached;
 }
 
+// Purpose: Reports whether the tds partition precheck feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdsPartitionPrecheckEnabled() {
     static int cached_mode = -1;
     if (cached_mode < 0) {
@@ -1579,6 +1790,9 @@ bool tdsPartitionPrecheckEnabled() {
     return n == 0 || n < 23;
 }
 
+// Purpose: Retrieves the configured local no path depth value.
+// Inputs: None.
+// Output: The computed value or status code.
 int localNoPathDepth() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -1596,6 +1810,9 @@ int localNoPathDepth() {
     return cached;
 }
 
+// Purpose: Reports whether the incumbent prune feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool incumbentPruneEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -1610,6 +1827,9 @@ bool incumbentPruneEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the combined lower bound feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool combinedLowerBoundEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -1624,6 +1844,9 @@ bool combinedLowerBoundEnabled() {
     return cached == 1;
 }
 
+// Purpose: Checks whether the default unconstrained-state bound configuration is active.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool defaultEmptySBoundConfig() {
     static int cached = -1;
     if (cached >= 0) {
@@ -1637,6 +1860,9 @@ bool defaultEmptySBoundConfig() {
     return cached == 1;
 }
 
+// Purpose: Combines cached and structural bounds for an unconstrained state.
+// Inputs: conflict_lb (const int); pair_key (const Key128&); bounds_key (const Key128&).
+// Output: The computed value or status code.
 int emptySLowerBoundFromKeys(const int conflict_lb,
                              const Key128& pair_key,
                              const Key128& bounds_key) {
@@ -1648,6 +1874,9 @@ int emptySLowerBoundFromKeys(const int conflict_lb,
     return std::max({conflict_lb, pair_lb, state_lb});
 }
 
+// Purpose: Retrieves the configured min k probe step value.
+// Inputs: tree (const VectorRangeTreeMap&).
+// Output: The computed value or status code.
 int minKProbeStep(const VectorRangeTreeMap& tree) {
     static int env_cached = INT_MIN;
     if (env_cached != INT_MIN) {
@@ -1668,6 +1897,9 @@ int minKProbeStep(const VectorRangeTreeMap& tree) {
     return std::max(4, (n + 1) / 4);
 }
 
+// Purpose: Retrieves the configured min k linear prefix probes value.
+// Inputs: tree (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The computed value or status code.
 int minKLinearPrefixProbes(const VectorRangeTreeMap& tree,
                            const VectorRangeTreeMap& target) {
     static int env_cached = INT_MIN;
@@ -1696,6 +1928,9 @@ int minKLinearPrefixProbes(const VectorRangeTreeMap& tree,
     return n >= 23 ? 3 : 0;
 }
 
+// Purpose: Retrieves the configured min k linear abort ms value.
+// Inputs: tree (const VectorRangeTreeMap&).
+// Output: The computed value or status code.
 int minKLinearAbortMs(const VectorRangeTreeMap& tree) {
     static int env_cached = INT_MIN;
     if (env_cached != INT_MIN) {
@@ -1716,6 +1951,9 @@ int minKLinearAbortMs(const VectorRangeTreeMap& tree) {
     return n >= 25 ? 150 : 0;
 }
 
+// Purpose: Updates pair incumbent upper.
+// Inputs: pair_key (const Key128&); k (int).
+// Output: No return value; updates referenced outputs or shared state.
 void updatePairIncumbentUpper(const Key128& pair_key, int k) {
     if (!incumbentPruneEnabled()) return;
     auto it = g_pair_incumbent_upper.find(pair_key);
@@ -1724,6 +1962,9 @@ void updatePairIncumbentUpper(const Key128& pair_key, int k) {
     }
 }
 
+// Purpose: Retrieves the best known upper bound for a tree pair.
+// Inputs: pair_key (const Key128&).
+// Output: The computed value or status code.
 int pairIncumbentUpper(const Key128& pair_key) {
     if (!incumbentPruneEnabled()) return std::numeric_limits<int>::max();
     auto it = g_pair_incumbent_upper.find(pair_key);
@@ -1731,6 +1972,9 @@ int pairIncumbentUpper(const Key128& pair_key) {
     return it->second;
 }
 
+// Purpose: Retrieves or builds the cached target-edge set.
+// Inputs: target (const VectorRangeTreeMap&).
+// Output: A reference to the resulting std::unordered_set<RP, RPH>.
 const std::unordered_set<RP, RPH>& cachedTargetEdgeSet(const VectorRangeTreeMap& target) {
     const Key128 target_key = makeKeyPair(target, target);
     auto target_it = g_target_edge_set_cache.find(target_key);
@@ -1740,6 +1984,9 @@ const std::unordered_set<RP, RPH>& cachedTargetEdgeSet(const VectorRangeTreeMap&
     return target_it->second;
 }
 
+// Purpose: Retrieves or builds cached child-range metadata for the target.
+// Inputs: target (const VectorRangeTreeMap&).
+// Output: A reference to the resulting TargetChildRangeSet.
 const TargetChildRangeSet& cachedTargetChildRanges(const VectorRangeTreeMap& target) {
     const Key128 target_key = makeKeyPair(target, target);
     auto target_it = g_target_child_range_cache.find(target_key);
@@ -1780,6 +2027,9 @@ const TargetChildRangeSet& cachedTargetChildRanges(const VectorRangeTreeMap& tar
     return target_it->second;
 }
 
+// Purpose: Finds free edge with cached target.
+// Inputs: cur (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The resulting std::pair<bool, std::pair<int, int>> value.
 std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
     const VectorRangeTreeMap& cur,
     const VectorRangeTreeMap& target) {
@@ -1884,6 +2134,9 @@ std::pair<bool, std::pair<int, int>> findFreeEdgeWithCachedTarget(
     return {false, {-1, -1}};
 }
 
+// Purpose: Encodes an edge as a stable key for heuristic score lookups.
+// Inputs: edge (const std::pair<int, int>&).
+// Output: The computed std::uint64_t value.
 std::uint64_t edgeScoreKey(const std::pair<int, int>& edge) {
     int a = std::min(edge.first, edge.second);
     int b = std::max(edge.first, edge.second);
@@ -1891,6 +2144,9 @@ std::uint64_t edgeScoreKey(const std::pair<int, int>& edge) {
            static_cast<std::uint32_t>(b);
 }
 
+// Purpose: Collects outgoing range edges for nodes.
+// Inputs: tree (const VectorRangeTreeMap&); first_node (const int); second_node (const int); out (std::array<RP, 4>&).
+// Output: The computed value or status code.
 int collectOutgoingRangeEdgesForNodes(const VectorRangeTreeMap& tree,
                                       const int first_node,
                                       const int second_node,
@@ -1917,6 +2173,9 @@ int collectOutgoingRangeEdgesForNodes(const VectorRangeTreeMap& tree,
     return count;
 }
 
+// Purpose: Counts local conflicts.
+// Inputs: edges (const std::array<RP, 4>&); edge_count (const int); target_edges (const TargetChildRangeSet&).
+// Output: The computed value or status code.
 int countLocalConflicts(const std::array<RP, 4>& edges,
                         const int edge_count,
                         const TargetChildRangeSet& target_edges) {
@@ -1929,6 +2188,9 @@ int countLocalConflicts(const std::array<RP, 4>& edges,
     return conflicts;
 }
 
+// Purpose: Rotates d conflict count from local delta.
+// Inputs: current_conflicts (const int); old_edges (const std::array<RP, 4>&); old_edge_count (const int); rotated_tree (const VectorRangeTreeMap&); first_node (const int); second_node (const int); target_edges (const TargetChildRangeSet&).
+// Output: The computed value or status code.
 int rotatedConflictCountFromLocalDelta(const int current_conflicts,
                                        const std::array<RP, 4>& old_edges,
                                        const int old_edge_count,
@@ -1944,6 +2206,9 @@ int rotatedConflictCountFromLocalDelta(const int current_conflicts,
            countLocalConflicts(new_edges, new_edge_count, target_edges);
 }
 
+// Purpose: Retrieves or computes a conflict count using a precomputed pair key.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); key (const Key128&).
+// Output: The computed value or status code.
 int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
                                const VectorRangeTreeMap& target,
                                const Key128& key) {
@@ -1977,10 +2242,16 @@ int cachedConflictCountWithKey(const VectorRangeTreeMap& start,
     return value;
 }
 
+// Purpose: Retrieves or computes the conflict count for a tree pair.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The computed value or status code.
 int cachedConflictCount(const VectorRangeTreeMap& start, const VectorRangeTreeMap& target) {
     return cachedConflictCountWithKey(start, target, makeKeyPair(start, target));
 }
 
+// Purpose: Retrieves or computes a free-edge candidate for a tree pair.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); key (const Key128&).
+// Output: The resulting std::pair<bool, std::pair<int, int>> value.
 std::pair<bool, std::pair<int, int>> cachedFindFreeEdge(
     const VectorRangeTreeMap& start, const VectorRangeTreeMap& target, const Key128& key) {
     auto it = g_free_edge_cache.find(key);
@@ -1993,11 +2264,17 @@ std::pair<bool, std::pair<int, int>> cachedFindFreeEdge(
     return value;
 }
 
+// Purpose: Retrieves or computes a free-edge candidate for a tree pair.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The resulting std::pair<bool, std::pair<int, int>> value.
 std::pair<bool, std::pair<int, int>> cachedFindFreeEdge(
     const VectorRangeTreeMap& start, const VectorRangeTreeMap& target) {
     return cachedFindFreeEdge(start, target, makeKeyPair(start, target));
 }
 
+// Purpose: Applies rotation on edge.
+// Inputs: tree (VectorRangeTreeMap&); edge (const std::pair<int, int>&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool applyRotationOnEdge(VectorRangeTreeMap& tree, const std::pair<int, int>& edge) {
     auto oriented = orientEdge(tree, edge);
     int parent = oriented.first;
@@ -2016,6 +2293,9 @@ bool applyRotationOnEdge(VectorRangeTreeMap& tree, const std::pair<int, int>& ed
     return false;
 }
 
+// Purpose: Computes exact distance when the subproblem is within the configured size limit.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The computed value or status code.
 int exactDistanceSmallSubproblem(const VectorRangeTreeMap& start,
                                  const VectorRangeTreeMap& target) {
     if (TreesEqual(start, target)) {
@@ -2051,6 +2331,9 @@ int exactDistanceSmallSubproblem(const VectorRangeTreeMap& start,
     return std::numeric_limits<int>::max() / 4;
 }
 
+// Purpose: Computes a local lower bound from neighborhoods that cannot be solved within the tested depth.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); depth (int).
+// Output: The computed value or status code.
 int localNoPathLowerBound(const VectorRangeTreeMap& start,
                           const VectorRangeTreeMap& target,
                           int depth) {
@@ -2089,6 +2372,9 @@ int localNoPathLowerBound(const VectorRangeTreeMap& start,
     return depth + 1;
 }
 
+// Purpose: Builds heuristic state key.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); kind (HeuristicStateKind); S_state (const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); I_state (const std::vector<std::pair<int, int>>&).
+// Output: The resulting Key128 value.
 Key128 makeHeuristicStateKey(
     const VectorRangeTreeMap& start,
     const VectorRangeTreeMap& target,
@@ -2109,6 +2395,9 @@ Key128 makeHeuristicStateKey(
     return key;
 }
 
+// Purpose: Computes the configured heuristic lower bound for a search state.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); kind (HeuristicStateKind); S_state (const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); I_state (const std::vector<std::pair<int, int>>&); conflict_lb_hint (int).
+// Output: The computed value or status code.
 int heuristicLowerBound(
     const VectorRangeTreeMap& start,
     const VectorRangeTreeMap& target,
@@ -2213,6 +2502,9 @@ int heuristicLowerBound(
     return bundle.combined_lb;
 }
 
+// Purpose: Combines applicable lower bounds for an S-constrained state.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); S_state (const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); conflict_lb (int).
+// Output: The computed value or status code.
 int combinedLowerBoundS(const VectorRangeTreeMap& start,
                         const VectorRangeTreeMap& target,
                         const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>& S_state,
@@ -2221,6 +2513,9 @@ int combinedLowerBoundS(const VectorRangeTreeMap& start,
     return heuristicLowerBound(start, target, HeuristicStateKind::S, S_state, empty_i, conflict_lb);
 }
 
+// Purpose: Combines applicable lower bounds for an independent-set state.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); I_state (const std::vector<std::pair<int, int>>&); conflict_lb (int).
+// Output: The computed value or status code.
 int combinedLowerBoundI(const VectorRangeTreeMap& start,
                         const VectorRangeTreeMap& target,
                         const std::vector<std::pair<int, int>>& I_state,
@@ -2229,6 +2524,9 @@ int combinedLowerBoundI(const VectorRangeTreeMap& start,
     return heuristicLowerBound(start, target, HeuristicStateKind::I, empty_s, I_state, conflict_lb);
 }
 
+// Purpose: Evaluates rotation heuristic.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); edge (const std::pair<int, int>&); current_conflicts (int); gain_out (int&); next_conflicts_out (int&); free_hint_out (int&); heuristic_lb_out (int&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool evaluateRotationHeuristic(const VectorRangeTreeMap& start,
                                const VectorRangeTreeMap& target,
                                const std::pair<int, int>& edge,
@@ -2264,6 +2562,9 @@ bool evaluateRotationHeuristic(const VectorRangeTreeMap& start,
     return true;
 }
 
+// Purpose: Scores S-pairs and orders them to explore promising branches first.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); current_conflicts (int); S_pairs (std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); edge_gain (std::unordered_map<std::uint64_t, int>&); edge_free_hint (std::unordered_map<std::uint64_t, int>&); edge_lb_hint (std::unordered_map<std::uint64_t, int>&).
+// Output: No return value; updates referenced outputs or shared state.
 void scoreAndOrderSPairs(
     const VectorRangeTreeMap& start,
     const VectorRangeTreeMap& target,
@@ -2357,6 +2658,9 @@ void scoreAndOrderSPairs(
     }
 }
 
+// Purpose: Reports whether the pair heuristic ordering feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool pairHeuristicOrderingEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -2373,6 +2677,9 @@ bool pairHeuristicOrderingEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the progressive s prefix feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool progressiveSPrefixEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -2387,6 +2694,9 @@ bool progressiveSPrefixEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the initial prefix size for progressive S branching.
+// Inputs: None.
+// Output: The computed value or status code.
 int progressiveSPrefixStart() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -2404,6 +2714,9 @@ int progressiveSPrefixStart() {
     return cached;
 }
 
+// Purpose: Reports whether the empty s core reduce feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool emptySCoreReduceEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -2414,6 +2727,9 @@ bool emptySCoreReduceEnabled() {
     return cached == 1;
 }
 
+// Purpose: Reports whether the plateau tree dump feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool plateauTreeDumpEnabled() {
     static int cached = -1;
     if (cached >= 0) return cached == 1;
@@ -2422,6 +2738,9 @@ bool plateauTreeDumpEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the configured plateau tree dump min edges value.
+// Inputs: None.
+// Output: The computed value or status code.
 int plateauTreeDumpMinEdges() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) return cached;
@@ -2431,6 +2750,9 @@ int plateauTreeDumpMinEdges() {
     return cached;
 }
 
+// Purpose: Retrieves the configured plateau tree dump max edges value.
+// Inputs: None.
+// Output: The computed value or status code.
 int plateauTreeDumpMaxEdges() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) return cached;
@@ -2440,6 +2762,9 @@ int plateauTreeDumpMaxEdges() {
     return cached;
 }
 
+// Purpose: Retrieves the configured plateau tree dump limit value.
+// Inputs: None.
+// Output: The computed value or status code.
 int plateauTreeDumpLimit() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) return cached;
@@ -2449,16 +2774,25 @@ int plateauTreeDumpLimit() {
     return cached;
 }
 
+// Purpose: Retrieves the branch-pair filter used for plateau dumps.
+// Inputs: None.
+// Output: The resulting std::string value.
 std::string plateauTreeDumpBranchPairs() {
     const char* env = std::getenv("FLIPDIST_PROFILE_PLATEAU_DUMP_BRANCH_PAIRS");
     return env ? std::string(env) : std::string();
 }
 
+// Purpose: Retrieves the destination path for plateau tree dumps.
+// Inputs: None.
+// Output: The resulting std::string value.
 std::string plateauTreeDumpFile() {
     const char* env = std::getenv("FLIPDIST_PROFILE_PLATEAU_DUMP_FILE");
     return env ? std::string(env) : std::string();
 }
 
+// Purpose: Checks whether a branch pair passes the configured dump filter.
+// Inputs: a (int); b (int).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool plateauTreeDumpBranchPairMatches(int a, int b) {
     std::string spec = plateauTreeDumpBranchPairs();
     if (spec.empty()) return true;
@@ -2481,6 +2815,9 @@ bool plateauTreeDumpBranchPairMatches(int a, int b) {
     return false;
 }
 
+// Purpose: Serializes the live tree structure into canonical traversal form.
+// Inputs: tree (const VectorRangeTreeMap&).
+// Output: The resulting std::string value.
 std::string currentTreeToCanonicalString(const VectorRangeTreeMap& tree) {
     std::vector<int> preorder;
     std::vector<int> inorder;
@@ -2511,6 +2848,9 @@ std::string currentTreeToCanonicalString(const VectorRangeTreeMap& tree) {
     return out.str();
 }
 
+// Purpose: Writes a plateau state only when profiling filters and limits allow it.
+// Inputs: state_key (const Key128&); start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); start_profile (const TreeStructureProfile&); target_profile (const TreeStructureProfile&); motif (const std::string&); reduced_edges (int); conflicts (int); k (int); legal_children (int); plateau_buckets (int).
+// Output: No return value; updates referenced outputs or shared state.
 void maybeDumpPlateauTreeState(const Key128& state_key,
                                const VectorRangeTreeMap& start,
                                const VectorRangeTreeMap& target,
@@ -2556,6 +2896,9 @@ void maybeDumpPlateauTreeState(const Key128& state_key,
     ++g_plateau_tree_dump_count;
 }
 
+// Purpose: Retrieves the configured empty s core db m value.
+// Inputs: None.
+// Output: The computed value or status code.
 int emptySCoreDbM() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -2573,6 +2916,9 @@ int emptySCoreDbM() {
     return cached;
 }
 
+// Purpose: Reports whether the empty s motif reduce feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool emptySMotifReduceEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -2583,6 +2929,9 @@ bool emptySMotifReduceEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the exact-solver size limit for unconstrained motifs.
+// Inputs: None.
+// Output: The computed value or status code.
 int emptySExactMotifM() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -2600,6 +2949,9 @@ int emptySExactMotifM() {
     return cached;
 }
 
+// Purpose: Reports whether the branchy core lb feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool branchyCoreLbEnabled() {
     static int cached = -1;
     if (cached >= 0) {
@@ -2610,6 +2962,9 @@ bool branchyCoreLbEnabled() {
     return cached == 1;
 }
 
+// Purpose: Retrieves the configured branchy core exact m value.
+// Inputs: None.
+// Output: The computed value or status code.
 int branchyCoreExactM() {
     static int cached = INT_MIN;
     if (cached != INT_MIN) {
@@ -2627,6 +2982,9 @@ int branchyCoreExactM() {
     return cached;
 }
 
+// Purpose: Classifies tree motif.
+// Inputs: tree (const VectorRangeTreeMap&).
+// Output: The resulting std::string value.
 std::string classifyTreeMotif(const VectorRangeTreeMap& tree) {
     int branching_nodes = 0;
     for (int node : tree.original_inorder) {
@@ -2647,6 +3005,9 @@ std::string classifyTreeMotif(const VectorRangeTreeMap& tree) {
     return "branchy";
 }
 
+// Purpose: Classifies empty s core motif.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The resulting std::string value.
 std::string classifyEmptySCoreMotif(const VectorRangeTreeMap& start,
                                     const VectorRangeTreeMap& target) {
     const std::string left = classifyTreeMotif(start);
@@ -2657,6 +3018,9 @@ std::string classifyEmptySCoreMotif(const VectorRangeTreeMap& start,
     return left + "_to_" + right;
 }
 
+// Purpose: Builds a stable signature for a reduced tree-pair core.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif (const std::string&).
+// Output: The resulting std::string value.
 std::string coreSignatureForPair(const VectorRangeTreeMap& start,
                                  const VectorRangeTreeMap& target,
                                  const std::string& motif) {
@@ -2665,6 +3029,9 @@ std::string coreSignatureForPair(const VectorRangeTreeMap& start,
            std::to_string(pair_key.hi) + ":" + std::to_string(pair_key.lo);
 }
 
+// Purpose: Collects best common edge core split.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); best_out (CoreDecompositionCandidate&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool collectBestCommonEdgeCoreSplit(const VectorRangeTreeMap& start,
                                     const VectorRangeTreeMap& target,
                                     CoreDecompositionCandidate& best_out) {
@@ -2723,6 +3090,9 @@ bool collectBestCommonEdgeCoreSplit(const VectorRangeTreeMap& start,
     return found;
 }
 
+// Purpose: Attempts free edge core reduction.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); out (FreeEdgeCoreReduction&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryFreeEdgeCoreReduction(const VectorRangeTreeMap& start,
                               const VectorRangeTreeMap& target,
                               FreeEdgeCoreReduction& out) {
@@ -2787,6 +3157,9 @@ bool tryFreeEdgeCoreReduction(const VectorRangeTreeMap& start,
     return true;
 }
 
+// Purpose: Analyzes empty s core.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&).
+// Output: The resulting EmptySCoreSummary value.
 EmptySCoreSummary analyzeEmptySCore(const VectorRangeTreeMap& start,
                                     const VectorRangeTreeMap& target) {
     const Key128 pair_key = makeKeyPair(start, target);
@@ -2892,10 +3265,16 @@ EmptySCoreSummary analyzeEmptySCore(const VectorRangeTreeMap& start,
     return summary;
 }
 
+// Purpose: Checks whether a residual motif is eligible for branchy-core reduction.
+// Inputs: motif (const std::string&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool branchyResidualEligible(const std::string& motif) {
     return motif == "branchy" || motif == "branchy_to_broom";
 }
 
+// Purpose: Builds the cache key for a branchy-core summary.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); exact_m (int).
+// Output: The resulting Key128 value.
 Key128 branchyCoreSummaryKey(const VectorRangeTreeMap& start,
                              const VectorRangeTreeMap& target,
                              int exact_m) {
@@ -2905,6 +3284,9 @@ Key128 branchyCoreSummaryKey(const VectorRangeTreeMap& start,
     return key;
 }
 
+// Purpose: Computes or retrieves the exact distance for an eligible branchy core.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); count_profile (bool).
+// Output: The computed value or status code.
 int exactBranchyCoreDistance(const VectorRangeTreeMap& start,
                              const VectorRangeTreeMap& target,
                              bool count_profile) {
@@ -2933,6 +3315,9 @@ struct BranchyPeelCandidate {
     std::string residual_signature;
 };
 
+// Purpose: Compares branchy peel candidates using the reduction ranking rules.
+// Inputs: a (const BranchyPeelCandidate&); b (const BranchyPeelCandidate&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool betterBranchyPeelCandidate(const BranchyPeelCandidate& a,
                                 const BranchyPeelCandidate& b) {
     const bool a_branchy = branchyResidualEligible(a.residual_motif);
@@ -2952,6 +3337,9 @@ bool betterBranchyPeelCandidate(const BranchyPeelCandidate& a,
     return a.residual_signature < b.residual_signature;
 }
 
+// Purpose: Replaces the current branchy candidate when a better reduction is found.
+// Inputs: peeled_start (const VectorRangeTreeMap&); peeled_target (const VectorRangeTreeMap&); residual_start (const VectorRangeTreeMap&); residual_target (const VectorRangeTreeMap&); base_cost (int); from_free (bool); exact_m (int); current_edges (int); found (bool&); best (BranchyPeelCandidate&).
+// Output: No return value; updates referenced outputs or shared state.
 void maybeUpdateBestBranchyCandidate(const VectorRangeTreeMap& peeled_start,
                                      const VectorRangeTreeMap& peeled_target,
                                      const VectorRangeTreeMap& residual_start,
@@ -2995,6 +3383,9 @@ void maybeUpdateBestBranchyCandidate(const VectorRangeTreeMap& peeled_start,
     }
 }
 
+// Purpose: Collects best branchy peel candidate.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); exact_m (int); best_out (BranchyPeelCandidate&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool collectBestBranchyPeelCandidate(const VectorRangeTreeMap& start,
                                      const VectorRangeTreeMap& target,
                                      int exact_m,
@@ -3056,6 +3447,9 @@ bool collectBestBranchyPeelCandidate(const VectorRangeTreeMap& start,
     return found;
 }
 
+// Purpose: Analyzes branchy core summary.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); exact_m (int).
+// Output: The resulting BranchyCoreSummary value.
 BranchyCoreSummary analyzeBranchyCoreSummary(const VectorRangeTreeMap& start,
                                              const VectorRangeTreeMap& target,
                                              int exact_m) {
@@ -3125,16 +3519,25 @@ BranchyCoreSummary analyzeBranchyCoreSummary(const VectorRangeTreeMap& start,
     return summary;
 }
 
+// Purpose: Checks whether a motif supports exact peeling.
+// Inputs: motif (const std::string&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool motifPeelEligible(const std::string& motif) {
     return motif == "chain" || motif == "broom" ||
            motif == "chain_to_broom" || motif == "broom_to_chain";
 }
 
+// Purpose: Checks whether a motif may use the exact fallback solver.
+// Inputs: motif (const std::string&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool motifExactFallbackEligible(const std::string& motif) {
     return motif == "chain" || motif == "broom" ||
            motif == "broom_to_chain" || motif == "branchy_to_broom";
 }
 
+// Purpose: Builds the cache key for an unconstrained motif summary.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif_m (int).
+// Output: The resulting Key128 value.
 Key128 emptySMotifSummaryKey(const VectorRangeTreeMap& start,
                              const VectorRangeTreeMap& target,
                              int motif_m) {
@@ -3144,6 +3547,9 @@ Key128 emptySMotifSummaryKey(const VectorRangeTreeMap& start,
     return key;
 }
 
+// Purpose: Describes tree structure.
+// Inputs: tree (const VectorRangeTreeMap&).
+// Output: The resulting TreeStructureProfile value.
 TreeStructureProfile describeTreeStructure(const VectorRangeTreeMap& tree) {
     TreeStructureProfile profile;
     if (tree.root < 0 || !tree.isOriginal(tree.root) || tree.original_inorder.empty()) {
@@ -3209,6 +3615,9 @@ TreeStructureProfile describeTreeStructure(const VectorRangeTreeMap& tree) {
     return profile;
 }
 
+// Purpose: Computes or retrieves exact distance for an eligible unconstrained motif.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); count_profile (bool).
+// Output: The computed value or status code.
 int exactEmptySMotifDistance(const VectorRangeTreeMap& start,
                              const VectorRangeTreeMap& target,
                              bool count_profile) {
@@ -3228,6 +3637,9 @@ int exactEmptySMotifDistance(const VectorRangeTreeMap& start,
     return exact_dist;
 }
 
+// Purpose: Appends a motif peel layout only when its partitions are compatible.
+// Inputs: peeled_start (const VectorRangeTreeMap&); peeled_target (const VectorRangeTreeMap&); residual_start (const VectorRangeTreeMap&); residual_target (const VectorRangeTreeMap&); base_cost (int); kind (const std::string&); articulation_edge (const std::string&); motif_m (int); seen_residuals (std::unordered_set<Key128, Key128Hash>&); out (std::vector<MotifPeelLayout>&).
+// Output: No return value; updates referenced outputs or shared state.
 void maybeAppendMotifPeelLayout(const VectorRangeTreeMap& peeled_start,
                                 const VectorRangeTreeMap& peeled_target,
                                 const VectorRangeTreeMap& residual_start,
@@ -3275,6 +3687,9 @@ void maybeAppendMotifPeelLayout(const VectorRangeTreeMap& peeled_start,
     out.push_back(std::move(layout));
 }
 
+// Purpose: Collects common edge motif layouts.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif_m (int); seen_residuals (std::unordered_set<Key128, Key128Hash>&); out (std::vector<MotifPeelLayout>&).
+// Output: No return value; updates referenced outputs or shared state.
 void collectCommonEdgeMotifLayouts(const VectorRangeTreeMap& start,
                                    const VectorRangeTreeMap& target,
                                    int motif_m,
@@ -3314,6 +3729,9 @@ void collectCommonEdgeMotifLayouts(const VectorRangeTreeMap& start,
     }
 }
 
+// Purpose: Collects free edge motif layouts.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif_m (int); seen_residuals (std::unordered_set<Key128, Key128Hash>&); out (std::vector<MotifPeelLayout>&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool collectFreeEdgeMotifLayouts(const VectorRangeTreeMap& start,
                                  const VectorRangeTreeMap& target,
                                  int motif_m,
@@ -3342,6 +3760,9 @@ bool collectFreeEdgeMotifLayouts(const VectorRangeTreeMap& start,
     return false;
 }
 
+// Purpose: Collects empty s motif peel layouts.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif_m (int); solved_by_free_edge (bool&).
+// Output: The resulting std::vector<MotifPeelLayout> value.
 std::vector<MotifPeelLayout> collectEmptySMotifPeelLayouts(const VectorRangeTreeMap& start,
                                                            const VectorRangeTreeMap& target,
                                                            int motif_m,
@@ -3372,6 +3793,9 @@ std::vector<MotifPeelLayout> collectEmptySMotifPeelLayouts(const VectorRangeTree
     return layouts;
 }
 
+// Purpose: Compares articulation-arm reductions using the configured ranking rules.
+// Inputs: a (const ArticulationArmReduction&); b (const ArticulationArmReduction&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool betterArticulationArmReduction(const ArticulationArmReduction& a,
                                     const ArticulationArmReduction& b) {
     if (a.solved != b.solved) {
@@ -3389,6 +3813,9 @@ bool betterArticulationArmReduction(const ArticulationArmReduction& a,
     return a.residual_motif < b.residual_motif;
 }
 
+// Purpose: Attempts articulation arm reduction.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); k (int); out (ArticulationArmReduction&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryArticulationArmReduction(const VectorRangeTreeMap& start,
                                  const VectorRangeTreeMap& target,
                                  int k,
@@ -3594,6 +4021,9 @@ bool tryArticulationArmReduction(const VectorRangeTreeMap& start,
     return true;
 }
 
+// Purpose: Analyzes empty s motif summary.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); motif_m (int).
+// Output: The resulting EmptySMotifSummary value.
 EmptySMotifSummary analyzeEmptySMotifSummary(const VectorRangeTreeMap& start,
                                              const VectorRangeTreeMap& target,
                                              int motif_m) {
@@ -3653,6 +4083,9 @@ EmptySMotifSummary analyzeEmptySMotifSummary(const VectorRangeTreeMap& start,
     return summary;
 }
 
+// Purpose: Attempts exact empty s motif reduction.
+// Inputs: start (const VectorRangeTreeMap&); target (const VectorRangeTreeMap&); k (int); handled (bool&); result_out (bool&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tryExactEmptySMotifReduction(const VectorRangeTreeMap& start,
                                   const VectorRangeTreeMap& target,
                                   int k,
@@ -3736,6 +4169,9 @@ struct InflightBudgetGuard {
     Key128 key{};
     bool had_prev = false;
     int prev_budget = -1;
+    // Purpose: Restores or removes the in-flight budget entry owned by this scope.
+    // Inputs: None.
+    // Output: No return value; returns the in-flight map to its previous state.
     ~InflightBudgetGuard() {
         if (!map) return;
         if (had_prev) {
@@ -3746,7 +4182,7 @@ struct InflightBudgetGuard {
     }
 };
 
-} // namespace
+}
 
 static bool TreeDistSImpl(const VectorRangeTreeMap& T_init,
                           const VectorRangeTreeMap& T_end,
@@ -3754,10 +4190,10 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init,
                           const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S,
                           const EmptySKeys* precomputed_empty_keys);
 
-// Definition: Decide if rotation distance <= k via Li–Xia branching
-// Parameters: T_init: source tree; T_final: target tree; k: budget
-// Returns: true if a sequence of <= k rotations exists, else false
-// Errors: returns false on invalid inputs or internal copy/rotation failures
+// Purpose: Decide if rotation distance <= k via Li–Xia branching
+// Inputs: T_init: source tree; T_final: target tree; k: budget
+// Output: true if a sequence of <= k rotations exists, else false
+// Failure: returns false on invalid inputs or internal copy/rotation failures
 bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k) {
     initProfile();
     if (g_profile.enabled) {
@@ -3794,7 +4230,6 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
         return value;
     };
 
-    // BASE CASE: Check if trees are already identical
     if (TreesEqual(T_init, T_final)) {
         debugPrint("Trees already equal, returning true");
         return memoReturn(true);
@@ -3841,7 +4276,6 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
     std::vector<std::vector<std::pair<int,int>>> independentSubsets;
     std::vector<std::pair<int,int>> current;
 
-    //                       branch on two choices: (1) include e in I; (2) exclude e from I"
     generateAllIndependentSubsets(edges, 0, current, independentSubsets);
     if (g_profile.enabled) {
         g_profile.independent_subsets_initial += (long long)independentSubsets.size();
@@ -3849,10 +4283,10 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
 
     debugPrint("Generated " + std::to_string(independentSubsets.size()) + " independent subsets (all)");
 
-    //                       If FlipDistTree-I(T_init, T_final, |I|) returns True, then True"
     for (size_t i = 0; i < independentSubsets.size(); i++) {
         const auto& subset = independentSubsets[i];
-        if (subset.empty()) continue;  // Skip empty subsets (I ≠ ∅ requirement)
+        // An empty independent set makes no progress and violates the Li–Xia branch precondition.
+        if (subset.empty()) continue;
         if (g_profile.enabled) {
             if ((long long)subset.size() > g_profile.max_i_size) {
                 g_profile.max_i_size = (long long)subset.size();
@@ -3862,7 +4296,6 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
         debugPrint("Trying subset " + std::to_string(i) + " with " + std::to_string(subset.size()) + " edges");
 
         try {
-            // Call TreeDistI (which is FlipDistTree-I from pseudocode)
             if (TreeDistI(T_init, T_final, k, subset)) {
                 debugPrint("Found solution with subset " + std::to_string(i));
                 return memoReturn(true);
@@ -3879,10 +4312,10 @@ bool FlipDistTree(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_
     return memoReturn(false);
 }
 
-// Definition: Apply an independent set of rotations, then branch on S
-// Parameters: T_init/T_final: trees; k: total budget; I: independent edges
-// Returns: true if solvable within k, else false
-// Errors: returns false on invalid edges or copy/rotation failures
+// Purpose: Apply an independent set of rotations, then branch on S
+// Inputs: T_init/T_final: trees; k: total budget; I: independent edges
+// Output: true if solvable within k, else false
+// Failure: returns false on invalid edges or copy/rotation failures
 bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k,
                const std::vector<std::pair<int,int>>& I) {
     initProfile();
@@ -3942,7 +4375,7 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
         return value;
     };
 
-    // Strong lower bound gate: conflict count + learned failure bounds
+    // Combining structural conflicts with learned failures rejects budgets neither bound can reject alone.
     int conflict_lb = cachedConflictCount(T_init, T_final);
     int lower_bound = combinedLowerBoundI(T_init, T_final, I, conflict_lb);
     if (lower_bound > k) {
@@ -3950,20 +4383,19 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
         return memoReturn(false);
     }
 
-    int remaining_budget = k - (int)I.size();  // k - |I| from pseudocode
+    int remaining_budget = k - (int)I.size();
     const bool use_prefix_lb_prune = tdiPrefixPruneEnabled();
 
-    if (remaining_budget < 0) {  // This covers φ(T_init) > k − |I| case
+    if (remaining_budget < 0) {
         debugPrint("TreeDistI: Not enough budget for |I| rotations");
         if (g_profile.enabled) g_profile.tdi_remaining_budget_prunes++;
         return memoReturn(false);
     }
 
-    // Special handling when budget exactly equals |I| - try direct solution
+    // With no residual budget, the prescribed independent rotations are the only possible path.
     if (remaining_budget == 0) {
         VectorRangeTreeMap T_test = safeCopyTree(T_init);
 
-        // Apply all rotations in I
         for (const auto& edge : I) {
             auto oriented = orientEdge(T_test, edge);
             int parent = oriented.first;
@@ -4010,7 +4442,7 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
     }
     int applied_rotations = 0;
 
-    VectorRangeTreeMap T_bar = safeCopyTree(T_init);  // T̄_init from pseudocode
+    VectorRangeTreeMap T_bar = safeCopyTree(T_init);
     if (T_bar.original_inorder.empty()) {
         debugPrint("TreeDistI: Failed to copy tree");
         return memoReturn(false);
@@ -4029,15 +4461,15 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
             continue;
         }
 
-        int u, v;  // The nodes u,v from pseudocode step 2.2
+        int u, v;
 
         if (T_bar.getLeftChild(parent) == child) {
-            u = child;   // After rotation, child becomes parent
-            v = parent;  // After rotation, parent becomes child
+            u = child;
+            v = parent;
             T_bar.rotateRight(parent);
         } else if (T_bar.getRightChild(parent) == child) {
-            u = child;   // After rotation, child becomes parent
-            v = parent;  // After rotation, parent becomes child
+            u = child;
+            v = parent;
             T_bar.rotateLeft(parent);
         } else {
             if (g_profile.enabled) g_profile.tdi_rotation_skips++;
@@ -4149,10 +4581,10 @@ bool TreeDistI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fin
     return memoReturn(tds_ok);
 }
 
-// Definition: Resolve free-edge/partition cases, else branch on S pairs
-// Parameters: T_init/T_end: trees; k: budget; S: edge-pair set
-// Returns: true if solvable within k, else false
-// Errors: returns false on invalid inputs or internal failures
+// Purpose: Resolve free-edge/partition cases, else branch on S pairs
+// Inputs: T_init/T_end: trees; k: budget; S: edge-pair set
+// Output: true if solvable within k, else false
+// Failure: returns false on invalid inputs or internal failures
 static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
 	               const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S,
 	               const EmptySKeys* precomputed_empty_keys) {
@@ -5737,7 +6169,6 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
         }
     }
 
-    //                     For each nonempty independent subset I ⊆ ⋃ S (no two edges in I share a node):"
     debugPrint("TreeDistS: No free edge, implementing S branching (step 2)");
 
     if (k_work <= 0) {
@@ -5746,7 +6177,6 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
     }
 
     if (S_work.empty()) {
-        // No constraints from S, try any rotation
         if (g_profile.enabled) {
             g_profile.s_empty_branch_calls++;
         }
@@ -5807,7 +6237,7 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
         const int order_mode = emptySOrderMode();
 	        const bool use_free_hint = (g_empty_s_disable_free_hint_depth == 0);
         const bool use_incumbent_prune = incumbentPruneEnabled();
-        // Only the non-default tight-cache experiment needs budget-complete entries.
+        // The tight-cache experiment intentionally trades budget completeness for a smaller cache.
         const bool budget_safe_empty_s_cache = !emptySTightNoCacheEnabled();
         const auto computeFreeHint = [&](RotationCandidate& candidate, const VectorRangeTreeMap& probe_state) {
             auto [probe_has_free, probe_free_edge] =
@@ -5851,6 +6281,9 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
             Key128 child_pair_key{};
             Key128 child_bounds_key{};
             int next_conflicts_bucket = INT_MAX;
+            // Purpose: Compares two keys or state signatures for exact equality.
+            // Inputs: o: the value to compare with this instance.
+            // Output: True when all identity fields match; otherwise false.
             bool operator==(const EmptySChildStateSignature& o) const {
                 return child_pair_key == o.child_pair_key &&
                        child_bounds_key == o.child_bounds_key &&
@@ -5858,6 +6291,9 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
             }
         };
         struct EmptySChildStateSignatureHash {
+            // Purpose: Hashes a key or state signature for unordered containers.
+            // Inputs: The key or signature supplied to the call operator.
+            // Output: A hash code consistent with the corresponding equality operator.
             std::size_t operator()(const EmptySChildStateSignature& s) const {
                 std::size_t h = Key128Hash{}(s.child_pair_key);
                 h ^= Key128Hash{}(s.child_bounds_key) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -6596,8 +7032,6 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
 	        }
 	        return commitResult(false);
     } else {
-        //                       (a) include neither, (b) include eᵢ only, (c) include eᵢ′ only
-        //                       (skip choices that pick a non-edge or conflict with independence)."
         if (g_profile.enabled) {
             g_profile.s_branch_calls++;
         }
@@ -6660,11 +7094,17 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
             struct BranchStateKey {
                 uint32_t idx = 0;
                 uint64_t mask = 0;
+                // Purpose: Compares two keys or state signatures for exact equality.
+                // Inputs: o: the value to compare with this instance.
+                // Output: True when all identity fields match; otherwise false.
                 bool operator==(const BranchStateKey& o) const {
                     return idx == o.idx && mask == o.mask;
                 }
             };
             struct BranchStateHash {
+                // Purpose: Hashes a key or state signature for unordered containers.
+                // Inputs: The key or signature supplied to the call operator.
+                // Output: A hash code consistent with the corresponding equality operator.
                 size_t operator()(const BranchStateKey& k) const {
                     uint64_t h = (static_cast<uint64_t>(k.idx) << 32) ^ k.mask;
                     h ^= (h >> 33);
@@ -6722,7 +7162,7 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
                 const auto& e1 = pair.first;
                 const auto& e2 = pair.second;
                 if (!use_scored_pair_order) {
-                    // Baseline Li–Xia branch order: include neither, include e1, include e2
+                    // Preserve canonical Li–Xia ordering when heuristics are disabled for reproducible profiles.
                     if (branchPairs(idx + 1)) return true;
 
                     if (canInclude(e1)) {
@@ -6793,7 +7233,8 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
 
                 auto tryOptionsByFScore = [&]() -> bool {
                     struct Option {
-                        int type = 0;  // 0: neither, 1: e1, 2: e2
+                        // A compact branch code keeps score sorting deterministic: 0=neither, 1=e1, 2=e2.
+                        int type = 0;
                         int fscore = std::numeric_limits<int>::max() / 2;
                     };
                     std::vector<Option> options;
@@ -6913,16 +7354,19 @@ static bool TreeDistSImpl(const VectorRangeTreeMap& T_init, const VectorRangeTre
     return commitResult(false);
 }
 
+// Purpose: Tests the remaining budget using free-edge decomposition or S-pair branching.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int); S (const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool TreeDistS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
                const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
     initProfile();
     return TreeDistSImpl(T_init, T_end, k, S, nullptr);
 }
 
-// Definition: Find the smallest k such that FlipDistTree returns true
-// Parameters: T_init/T_final: trees; max_k: search cap
-// Returns: minimum k, or -1 if not found up to max_k
-// Errors: returns -1 on invalid inputs or failures during search
+// Purpose: Find the smallest k such that FlipDistTree returns true
+// Inputs: T_init/T_final: trees; max_k: search cap
+// Output: minimum k, or -1 if not found up to max_k
+// Failure: returns -1 on invalid inputs or failures during search
 int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int max_k) {
     if (max_k < 0) return -1;
     const size_t n_for_reserve = T_init.original_inorder.size();
@@ -6974,7 +7418,7 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
     }
 
     int lo = std::max(0, bounds.max_fail + 1);
-    // Exact lower bound: every conflicting edge must be removed at least once.
+    // Every conflicting edge must be removed at least once, making this a safe exact lower bound.
     lo = std::max(lo, countConflictEdges(T_init, T_final));
     if (lo > max_k) {
         return -1;
@@ -6985,7 +7429,7 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
 	        hi = bounds.min_success;
 	    }
 
-	    // Find a feasible upper bound progressively instead of probing max_k directly
+	    // Progressive probes avoid paying the full search cost of an unnecessarily loose max_k bound.
 	    if (hi < 0) {
 	        int probe = lo;
         const int linear_prefix_end = std::min(max_k, lo + minKLinearPrefixProbes(T_init, T_final));
@@ -7058,6 +7502,9 @@ int FlipDistMinK(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_f
     return lo;
 }
 
+// Purpose: Resets algorithm profile sets.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetAlgorithmProfileSets() {
 #if FLIPDIST_REUSE_PROFILE_COUNTERS
     g_profile_tds_base_states_seen.clear();
@@ -7068,6 +7515,9 @@ void resetAlgorithmProfileSets() {
 #endif
 }
 
+// Purpose: Resets algorithm caches.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetAlgorithmCaches() {
     g_conflict_cache.clear();
     g_target_edge_set_cache.clear();

@@ -12,101 +12,92 @@
 #include <iomanip>
 #include <array>
 
-// Definition: Hash a (parent, child) pair for unordered containers
-// Parameters: p: pair to hash
-// Returns: hash value
-// Errors: none
+// Purpose: Hash a (parent, child) pair for unordered containers
+// Inputs: p: pair to hash
+// Output: hash value
 size_t PairHash::operator()(const std::pair<int, int> &p) const
 {
-    // Combine two 32-bit ints into one 64-bit for hashing
     return std::hash<long long>()(((long long)p.first << 32) ^ (unsigned long long)p.second);
 }
 
-// Definition: Compare two (parent, child) pairs for equality
-// Parameters: a: first pair; b: second pair
-// Returns: true if both pairs match
-// Errors: none
+// Purpose: Compare two (parent, child) pairs for equality
+// Inputs: a: first pair; b: second pair
+// Output: true if both pairs match
 bool PairEq::operator()(const std::pair<int, int> &a,
                         const std::pair<int, int> &b) const
 {
-    // Return true only if both parent and child match
     return a.first == b.first && a.second == b.second;
 }
 
-// Definition: Initialize an empty tree with default values
-// Parameters: none
-// Returns: constructed tree
-// Errors: none
+// Purpose: Initialize an empty tree with default values
+// Inputs: none
+// Output: constructed tree
 VectorRangeTreeMap::VectorRangeTreeMap() : root(-1), max_node_value(0)
 {
 
-    // (range start, range end) per node
     std::vector<std::pair<int, int>> ranges;
-    // (leftChild, rightChild) per node
     std::vector<std::pair<int, int>> edges;
-    // parent per node
     std::vector<int> parents;
 
-    int root = -1;          // root node value
-    int max_node_value = 0; // maximum node value to size vectors
-
-    // for partitionAlongEdge
+    int root = -1;
+    int max_node_value = 0;
 
     std::vector<int> original_inorder, original_preorder;
-    std::unordered_map<int, int> position_in_inorder; // node_value -> position in inorder
-    std::vector<int> position_in_inorder_fast;         // node_value -> position in inorder
-    std::unordered_set<int> original_nodes;           // set of original node values
-    std::vector<unsigned char> original_mask;          // node_value membership mask
+    std::unordered_map<int, int> position_in_inorder;
+    std::vector<int> position_in_inorder_fast;
+    std::unordered_set<int> original_nodes;
+    std::vector<unsigned char> original_mask;
 
     static constexpr int NO_CHILD = -1;
     static constexpr int NO_PARENT = -1;
 }
 
-// Definition: Build tree and ranges from preorder and inorder traversals
-// Parameters: preorder: preorder node list; inorder: inorder node list
-// Returns: nothing
-// Errors: leaves tree empty on invalid input
+// Purpose: Build tree and ranges from preorder and inorder traversals
+// Inputs: preorder: preorder node list; inorder: inorder node list
+// Output: nothing
+// Failure: leaves tree empty on invalid input
 void VectorRangeTreeMap::build(const std::vector<int> &preorder, const std::vector<int> &inorder)
 {
     buildImpl(preorder, inorder, true, true);
 }
 
+// Purpose: Builds light.
+// Inputs: preorder (const std::vector<int> &); inorder (const std::vector<int> &).
+// Output: No return value; updates referenced outputs or shared state.
 void VectorRangeTreeMap::buildLight(const std::vector<int> &preorder, const std::vector<int> &inorder)
 {
     buildImpl(preorder, inorder, false, false);
 }
 
+// Purpose: Builds impl.
+// Inputs: preorder (const std::vector<int> &); inorder (const std::vector<int> &); populate_nodes (bool); store_preorder (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void VectorRangeTreeMap::buildImpl(const std::vector<int> &preorder,
                                    const std::vector<int> &inorder,
                                    bool populate_nodes,
                                    bool store_preorder)
 {
-    // Record original preorder for partitioning
     if (store_preorder) {
         original_preorder = preorder;
     } else {
         original_preorder.clear();
     }
 
-    // Clear previous data
     clear();
 
     if (preorder.empty())
         return;
 
-    // size arrays
     max_node_value = *std::max_element(preorder.begin(), preorder.end());
     max_node_value = std::max(max_node_value, *std::max_element(inorder.begin(), inorder.end()));
 
-    // Resize vectors - only need space for original nodes
     ranges.resize(max_node_value + 1, {0, 0});
     edges.resize(max_node_value + 1, {NO_CHILD, NO_CHILD});
     parents.resize(max_node_value + 1, NO_PARENT);
     original_mask.resize(max_node_value + 1, 0);
     position_in_inorder_fast.resize(max_node_value + 1, -1);
 
-    // Store original node membership. original_mask drives hot membership checks; original_nodes
-    // is retained for callers that explicitly need set-style metadata.
+    // The mask keeps hot membership checks contiguous; the set supports callers needing set semantics.
     if (populate_nodes) {
         original_nodes.max_load_factor(2.0f);
         original_nodes.reserve(preorder.size());
@@ -120,10 +111,8 @@ void VectorRangeTreeMap::buildImpl(const std::vector<int> &preorder,
             original_mask[val] = 1;
     }
 
-    // Store original inorder
     original_inorder = inorder;
 
-    // Create position mapping from inorder sequence
     bool needs_sparse_positions = false;
     for (int val : inorder) {
         if (val < 0 || val >= (int)position_in_inorder_fast.size()) {
@@ -146,51 +135,50 @@ void VectorRangeTreeMap::buildImpl(const std::vector<int> &preorder,
     root = preorder[0];
     buildRecursive(preorder, inorder, 0, preorder.size() - 1, 0, inorder.size() - 1, NO_PARENT);
 
-    // Calculate ranges for all nodes
     calculateAllRanges();
     fingerprint_valid = false;
 }
 
-// Definition: Get the left child of a node
-// Parameters: node: node id
-// Returns: left child id or NO_CHILD
-// Errors: returns NO_CHILD for invalid node
+// Purpose: Get the left child of a node
+// Inputs: node: node id
+// Output: left child id or NO_CHILD
+// Failure: returns NO_CHILD for invalid node
 int VectorRangeTreeMap::getLeftChild(int node) const
 {
     return (node >= 0 && node < (int)edges.size()) ? edges[node].first : NO_CHILD;
 }
 
-// Definition: Get the right child of a node
-// Parameters: node: node id
-// Returns: right child id or NO_CHILD
-// Errors: returns NO_CHILD for invalid node
+// Purpose: Get the right child of a node
+// Inputs: node: node id
+// Output: right child id or NO_CHILD
+// Failure: returns NO_CHILD for invalid node
 int VectorRangeTreeMap::getRightChild(int node) const
 {
     return (node >= 0 && node < (int)edges.size()) ? edges[node].second : NO_CHILD;
 }
 
-// Definition: Get the parent of a node
-// Parameters: node: node id
-// Returns: parent id or NO_PARENT
-// Errors: returns NO_PARENT for invalid node
+// Purpose: Get the parent of a node
+// Inputs: node: node id
+// Output: parent id or NO_PARENT
+// Failure: returns NO_PARENT for invalid node
 int VectorRangeTreeMap::getParent(int node) const
 {
     return (node >= 0 && node < (int)parents.size()) ? parents[node] : NO_PARENT;
 }
 
-// Definition: Get the inorder range of a node
-// Parameters: node: node id
-// Returns: {start, end} range or {0,0} if invalid
-// Errors: returns {0,0} for invalid node
+// Purpose: Get the inorder range of a node
+// Inputs: node: node id
+// Output: {start, end} range or {0,0} if invalid
+// Failure: returns {0,0} for invalid node
 std::pair<int, int> VectorRangeTreeMap::getRange(int node) const
 {
     return (node >= 0 && node < (int)ranges.size()) ? ranges[node] : std::make_pair(0, 0);
 }
 
-// Definition: Set left child and update parent pointers
-// Parameters: node: parent id; child: child id
-// Returns: nothing
-// Errors: ignores invalid node ids
+// Purpose: Set left child and update parent pointers
+// Inputs: node: parent id; child: child id
+// Output: nothing
+// Failure: ignores invalid node ids
 void VectorRangeTreeMap::setLeftChild(int node, int child)
 {
 
@@ -205,10 +193,10 @@ void VectorRangeTreeMap::setLeftChild(int node, int child)
         parents[child] = node;
 }
 
-// Definition: Set right child and update parent pointers
-// Parameters: node: parent id; child: child id
-// Returns: nothing
-// Errors: ignores invalid node ids
+// Purpose: Set right child and update parent pointers
+// Inputs: node: parent id; child: child id
+// Output: nothing
+// Failure: ignores invalid node ids
 void VectorRangeTreeMap::setRightChild(int node,int child) {
     if (node<0||node>max_node_value) return;
     fingerprint_valid = false;
@@ -218,23 +206,22 @@ void VectorRangeTreeMap::setRightChild(int node,int child) {
     if (child>=0) parents[child]=node;
 }
 
-// Definition: Check if node exists in original node set
-// Parameters: node: node id
-// Returns: true if node is original
-// Errors: none
+// Purpose: Check if node exists in original node set
+// Inputs: node: node id
+// Output: true if node is original
 bool VectorRangeTreeMap::isOriginal(int node) const
 {
     return node >= 0 && node < (int)original_mask.size() && original_mask[node] != 0;
 }
 
-// Definition: Print tree structure recursively
-// Parameters: node_value: start node or -2 for root; indent: prefix string
-// Returns: nothing
-// Errors: no-op on invalid nodes
+// Purpose: Print tree structure recursively
+// Inputs: node_value: start node or -2 for root; indent: prefix string
+// Output: nothing
+// Failure: no-op on invalid nodes
 void VectorRangeTreeMap::printTreeStructure(int node_value, std::string indent) const
 {
     if (node_value == -2)
-        node_value = root; // Default to root on first call
+        node_value = root;
     if (node_value == NO_CHILD || !isOriginal(node_value))
         return;
 
@@ -257,10 +244,10 @@ void VectorRangeTreeMap::printTreeStructure(int node_value, std::string indent) 
     }
 }
 
-// Definition: Rotate left around node x and update ranges
-// Parameters: x: node id
-// Returns: nothing
-// Errors: no-op if rotation is not possible
+// Purpose: Rotate left around node x and update ranges
+// Inputs: x: node id
+// Output: nothing
+// Failure: no-op if rotation is not possible
 void VectorRangeTreeMap::rotateLeft(int x)
 {
     int y = getRightChild(x);
@@ -273,12 +260,10 @@ void VectorRangeTreeMap::rotateLeft(int x)
     auto xr = getRange(x), yr = getRange(y), ylr = getRange(yl);
     fingerprint_valid = false;
 
-    // update ranges
     ranges[y] = xr;
     ranges[x] = (yl >= 0)
                     ? std::pair<int, int>{xr.first, ylr.second}
                     : std::pair<int, int>{xr.first, yr.first};
-    // reconnect pointers
     parents[y] = xp;
     parents[x] = y;
 
@@ -301,10 +286,10 @@ void VectorRangeTreeMap::rotateLeft(int x)
         root = y;
 }
 
-// Definition: Rotate right around node x and update ranges
-// Parameters: x: node id
-// Returns: nothing
-// Errors: no-op if rotation is not possible
+// Purpose: Rotate right around node x and update ranges
+// Inputs: x: node id
+// Output: nothing
+// Failure: no-op if rotation is not possible
 void VectorRangeTreeMap::rotateRight(int x)
 {
     int y = getLeftChild(x);
@@ -344,10 +329,10 @@ void VectorRangeTreeMap::rotateRight(int x)
         root = y;
 }
 
-// Definition: Collect all (parent, child) edges into a set
-// Parameters: node_value: subtree root; out_set: output set
-// Returns: nothing
-// Errors: no-op on invalid nodes
+// Purpose: Collect all (parent, child) edges into a set
+// Inputs: node_value: subtree root; out_set: output set
+// Output: nothing
+// Failure: no-op on invalid nodes
 void VectorRangeTreeMap::collectEdges(int node_value,
     std::unordered_set<std::pair<int,int>,PairHash,PairEq>& out_set) const
 {
@@ -369,16 +354,14 @@ void VectorRangeTreeMap::collectEdges(int node_value,
     }
 }
 
-// Definition: Print full tree data including ranges, edges, and parents
-// Parameters: none
-// Returns: nothing
-// Errors: none
+// Purpose: Print full tree data including ranges, edges, and parents
+// Inputs: none
+// Output: nothing
 void VectorRangeTreeMap::print() const
 {
     std::cout << "Tree structure:\n";
     printTreeStructure();
 
-    // Print ranges for original nodes only, in sorted order
     std::vector<int> sorted_original;
     for (int node : original_inorder)
     {
@@ -405,7 +388,6 @@ void VectorRangeTreeMap::print() const
         int left = getLeftChild(node);
         int right = getRightChild(node);
 
-        // Convert non-original children to -1
         if (!isOriginal(left))
             left = NO_CHILD;
         if (!isOriginal(right))
@@ -423,7 +405,6 @@ void VectorRangeTreeMap::print() const
         int node = sorted_original[i];
         int parent = getParent(node);
 
-        // Convert non-original parent to -1
         if (!isOriginal(parent))
             parent = NO_PARENT;
 
@@ -432,6 +413,9 @@ void VectorRangeTreeMap::print() const
     std::cout << "]\n";
 }
 
+// Purpose: Collects current preorder for partition.
+// Inputs: T (const VectorRangeTreeMap&); out (std::vector<int>&).
+// Output: No return value; updates referenced outputs or shared state.
 static void collectCurrentPreorderForPartition(const VectorRangeTreeMap& T,
                                                std::vector<int>& out)
 {
@@ -615,7 +599,6 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
         return r.first >= lo && r.second <= hi;
     };
 
-    // split inorder
     for (int pos = 0; pos < total_size; ++pos)
     {
         const int x = T.original_inorder[static_cast<std::size_t>(pos)];
@@ -624,7 +607,6 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
         else
             inB.push_back(x);
     }
-    // split preorder
     for (int x : *source_preorder)
     {
         if (in_child_range(x))
@@ -638,10 +620,9 @@ VectorRangeTreeMap::partitionAlongEdge(const VectorRangeTreeMap& T,
     return {std::move(A), std::move(B)};
 }
 
-// Definition: Reset internal vectors and metadata
-// Parameters: none
-// Returns: nothing
-// Errors: none
+// Purpose: Reset internal vectors and metadata
+// Inputs: none
+// Output: nothing
 void VectorRangeTreeMap::clear() 
 {
     fingerprint_valid = false;
@@ -659,10 +640,10 @@ void VectorRangeTreeMap::clear()
     max_node_value = 0;
 }
 
-// Definition: Recursive helper to build tree from traversals
-// Parameters: preorder/inorder: traversal arrays; ps/pe/is/ie: ranges; p: parent id
-// Returns: nothing
-// Errors: no-op on invalid ranges
+// Purpose: Recursive helper to build tree from traversals
+// Inputs: preorder/inorder: traversal arrays; ps/pe/is/ie: ranges; p: parent id
+// Output: nothing
+// Failure: no-op on invalid ranges
 void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const std::vector<int> &inorder,
                     int ps, int pe, int is, int ie, int p)
 {
@@ -671,16 +652,13 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
 
     int root_val = preorder[ps];
 
-    // Set parent
     parents[root_val] = p;
 
-    // Find root position in inorder
     int root_idx = (root_val >= 0 && root_val < (int)position_in_inorder_fast.size())
                        ? position_in_inorder_fast[root_val]
                        : position_in_inorder[root_val];
     int left_size = root_idx - is;
 
-    // Build left subtree
     if (left_size > 0)
     {
         int left_root_val = preorder[ps + 1];
@@ -690,7 +668,6 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
                        is, root_idx - 1, root_val);
     }
 
-    // Build right subtree
     if (root_idx < ie)
     {
         int right_root_val = preorder[ps + left_size + 1];
@@ -701,10 +678,10 @@ void VectorRangeTreeMap::buildRecursive(const std::vector<int> &preorder, const 
     }
 }
 
-// Definition: Compute a single node range from children
-// Parameters: node_value: node id
-// Returns: nothing
-// Errors: no-op on invalid node
+// Purpose: Compute a single node range from children
+// Inputs: node_value: node id
+// Output: nothing
+// Failure: no-op on invalid node
 void VectorRangeTreeMap::updateNodeRange(int node_value)
 {
     if (node_value < 0 || node_value >= ranges.size() || !isOriginal(node_value))
@@ -713,16 +690,13 @@ void VectorRangeTreeMap::updateNodeRange(int node_value)
     int left = getLeftChild(node_value);
     int right = getRightChild(node_value);
 
-    // Get position of this node in inorder traversal
     int pos = (node_value >= 0 && node_value < (int)position_in_inorder_fast.size())
                   ? position_in_inorder_fast[node_value]
                   : position_in_inorder[node_value];
 
-    // Start with just this node's position
     int start = pos;
     int end = pos + 1;
 
-    // Extend range to include children's ranges
     if (left != NO_CHILD && isOriginal(left))
     {
         auto left_range = getRange(left);
@@ -738,20 +712,19 @@ void VectorRangeTreeMap::updateNodeRange(int node_value)
     ranges[node_value] = {start, end};
 }
 
-// Definition: Calculate ranges for all nodes
-// Parameters: none
-// Returns: nothing
-// Errors: none
+// Purpose: Calculate ranges for all nodes
+// Inputs: none
+// Output: nothing
 void VectorRangeTreeMap::calculateAllRanges()
 {
-    // Calculate ranges for all nodes in post-order (bottom-up)
+    // Parents depend on child ranges, so ranges must be rebuilt bottom-up.
     calculateRangesPostOrder(root);
 }
 
-// Definition: Post-order update for all ranges in a subtree
-// Parameters: node_value: subtree root
-// Returns: nothing
-// Errors: no-op on invalid node
+// Purpose: Post-order update for all ranges in a subtree
+// Inputs: node_value: subtree root
+// Output: nothing
+// Failure: no-op on invalid node
 void VectorRangeTreeMap::calculateRangesPostOrder(int node_value)
 {
     if (node_value == NO_CHILD || !isOriginal(node_value))
@@ -760,7 +733,6 @@ void VectorRangeTreeMap::calculateRangesPostOrder(int node_value)
     int left = getLeftChild(node_value);
     int right = getRightChild(node_value);
 
-    // Process children first (post-order)
     if (left != NO_CHILD && isOriginal(left))
     {
         calculateRangesPostOrder(left);
@@ -770,22 +742,20 @@ void VectorRangeTreeMap::calculateRangesPostOrder(int node_value)
         calculateRangesPostOrder(right);
     }
 
-    // Now calculate this node's range
     updateNodeRange(node_value);
 }
 
-// Definition: Detect if two trees are identical on the same node set
-// Parameters: A: first tree; B: second tree
-// Returns: true if structure, ranges, parents, and children match
-// Errors: returns false on mismatch or invalid input
+// Purpose: Detect if two trees are identical on the same node set
+// Inputs: A: first tree; B: second tree
+// Output: true if structure, ranges, parents, and children match
+// Failure: returns false on mismatch or invalid input
 bool TreesEqual(const VectorRangeTreeMap &A,
                 const VectorRangeTreeMap &B)
 {
-    // Must have the same original node labels in inorder order.
+    // Structural metadata is comparable only when both trees use the same ordered label set.
     if (A.original_inorder != B.original_inorder)
         return false;
 
-    // For each node, ranges + left/right child + parent must match
     for (int v : A.original_inorder)
     {
         if (!A.isOriginal(v) || !B.isOriginal(v))
@@ -803,27 +773,23 @@ bool TreesEqual(const VectorRangeTreeMap &A,
     return true;
 }
 
-// Definition: Serialize a tree into a unique string for hashing
-// Parameters: T: tree to serialize
-// Returns: stable string encoding of ranges and edges
-// Errors: none
+// Purpose: Serialize a tree into a unique string for hashing
+// Inputs: T: tree to serialize
+// Output: stable string encoding of ranges and edges
 std::string treeToString(const VectorRangeTreeMap &T)
 {
-    // Grab & sort the original labels
+    // Sorting makes memo keys independent of traversal storage order.
     std::vector<int> nodes = T.original_inorder;
     std::sort(nodes.begin(), nodes.end());
 
-    // Build a single string with fixed separators
     std::ostringstream oss;
     for (int v : nodes)
-    {                                  // node label
-        auto [rs, re] = T.getRange(v); // start/end of inorder range
-        // L,R are left/right child labels
+    {
+        auto [rs, re] = T.getRange(v);
         int L = T.getLeftChild(v);
         int R = T.getRightChild(v);
-        int P = T.getParent(v); // Parent label
+        int P = T.getParent(v);
 
-        // format: v,rs,re,L,R,P
         oss << v << ','
             << rs << ',' << re << ','
             << L << ',' << R << ','
@@ -832,27 +798,25 @@ std::string treeToString(const VectorRangeTreeMap &T)
     return oss.str();
 }
 
-// Definition: Compare two range edges for equality
-// Parameters: o: other range edge
-// Returns: true if all fields match
-// Errors: none
+// Purpose: Compare two range edges for equality
+// Inputs: o: other range edge
+// Output: true if all fields match
 bool RP::operator==(RP const &o) const {
     return cs == o.cs && ce == o.ce;
 }
 
-// Definition: Hash a range edge for unordered containers
-// Parameters: r: range edge
-// Returns: hash value
-// Errors: none
+// Purpose: Hash a range edge for unordered containers
+// Inputs: r: range edge
+// Output: hash value
 size_t RPH::operator()(RP const &r) const {
     uint64_t h2 = ((uint64_t)r.cs << 32) ^ uint32_t(r.ce);
     return std::hash<uint64_t>()(h2);
 }
 
-// Definition: Collect all (parent_range, child_range) edges in target
-// Parameters: T: tree to scan
-// Returns: set of range edges
-// Errors: returns empty on invalid tree
+// Purpose: Collect all (parent_range, child_range) edges in target
+// Inputs: T: tree to scan
+// Output: set of range edges
+// Failure: returns empty on invalid tree
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T)
 {
     std::unordered_set<RP, RPH> s;
@@ -878,10 +842,10 @@ std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap& T)
     return s;
 }
 
-// Definition: Check if a tree already has a given range edge
-// Parameters: tree: tree to scan; e: range edge
-// Returns: true if edge exists
-// Errors: returns false on invalid tree
+// Purpose: Check if a tree already has a given range edge
+// Inputs: tree: tree to scan; e: range edge
+// Output: true if edge exists
+// Failure: returns false on invalid tree
 bool hasEdgeByRange(const VectorRangeTreeMap &tree, RP const &e)
 {
     auto dfs = [&](auto&& self, int v) -> bool {
@@ -904,28 +868,25 @@ bool hasEdgeByRange(const VectorRangeTreeMap &tree, RP const &e)
     return dfs(dfs, tree.root);
 }
 
-// Definition: Detect any free edge in cur that target wants
-// Parameters: cur: current tree; tgt: target tree; out_v: rotation node; out_leftRotation: direction
-// Returns: true if a free edge is found
-// Errors: returns false on invalid trees or if none found
+// Purpose: Detect any free edge in cur that target wants
+// Inputs: cur: current tree; tgt: target tree; out_v: rotation node; out_leftRotation: direction
+// Output: true if a free edge is found
+// Failure: returns false on invalid trees or if none found
 bool hasFreeEdge(const VectorRangeTreeMap &cur,
                  const VectorRangeTreeMap &tgt,
                  int &out_v,
                  bool &out_leftRotation)
 {
-    // collect all (parent_range,child_range) edges in the target
     auto tgtEdges = buildTargetSet(tgt);
 
     for (int v : cur.original_inorder)
     {
-        // try a left‐rotation at v (pull up its right child y)
         int y = cur.getRightChild(v);
         if (y >= 0 && cur.isOriginal(y))
         {
             auto xr = cur.getRange(v);
             auto yr = cur.getRange(y);
 
-            // compute the child‐range for v after rotating left
             int yl = cur.getLeftChild(y);
             std::pair<int, int> newChild;
             if (yl >= 0 && cur.isOriginal(yl))
@@ -941,7 +902,6 @@ bool hasFreeEdge(const VectorRangeTreeMap &cur,
             RP e{xr.first, xr.second,
                  newChild.first, newChild.second};
 
-            // if tgt has e but cur does not already have it, we found a free edge
             if (tgtEdges.count(e) && !hasEdgeByRange(cur, e))
             {
                 out_v = v;
@@ -950,7 +910,6 @@ bool hasFreeEdge(const VectorRangeTreeMap &cur,
             }
         }
 
-        // try a right‐rotation at v (pull up its left child z)
         int z = cur.getLeftChild(v);
         if (z >= 0 && cur.isOriginal(z))
         {
@@ -984,9 +943,6 @@ bool hasFreeEdge(const VectorRangeTreeMap &cur,
     return false;
 }
 
-// Distance Computation & Search
-
-// Forward declarations for search and cost functions
 int BFSSearch(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 int removeFreeEdge(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 int Dist(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
@@ -994,10 +950,10 @@ int Dist(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 static std::unordered_map<std::string, int> memo;
 static std::unordered_set<std::string> in_progress;
 
-// Definition: Compute distance via free-edge shortcut and partitioning
-// Parameters: Ts: source tree; Te: target tree
-// Returns: rotation distance
-// Errors: falls back to BFSSearch on cycles or partition mismatch
+// Purpose: Compute distance via free-edge shortcut and partitioning
+// Inputs: Ts: source tree; Te: target tree
+// Output: rotation distance
+// Failure: falls back to BFSSearch on cycles or partition mismatch
 int Dist(const VectorRangeTreeMap &Ts,
          const VectorRangeTreeMap &Te)
 {
@@ -1016,7 +972,6 @@ int Dist(const VectorRangeTreeMap &Ts,
     bool left;
     if (hasFreeEdge(Ts, Te, u, left))
     {
-        // perform one free rotation + partition & recurse
         int v = left
                     ? Ts.getRightChild(u)
                     : Ts.getLeftChild(u);
@@ -1053,10 +1008,10 @@ int Dist(const VectorRangeTreeMap &Ts,
     return result;
 }
 
-// Definition: Apply one free-edge rotation and recurse on partitions
-// Parameters: Ts: source tree; Te: target tree
-// Returns: distance contribution for that free-edge path
-// Errors: falls back to BFSSearch on partition mismatch
+// Purpose: Apply one free-edge rotation and recurse on partitions
+// Inputs: Ts: source tree; Te: target tree
+// Output: distance contribution for that free-edge path
+// Failure: falls back to BFSSearch on partition mismatch
 int removeFreeEdge(const VectorRangeTreeMap &Ts,
                    const VectorRangeTreeMap &Te)
 {
@@ -1064,28 +1019,24 @@ int removeFreeEdge(const VectorRangeTreeMap &Ts,
     bool left;
     assert(hasFreeEdge(Ts, Te, u, left));
 
-    // identify the child endpoint _before_ rotating
+    // Rotation reverses this edge, so preserve the old child needed to identify the new split.
     int v = left
                 ? Ts.getRightChild(u)
                 : Ts.getLeftChild(u);
 
-    // Apply the rotation
     VectorRangeTreeMap Tbar = Ts;
     if (left)
         Tbar.rotateLeft(u);
     else
         Tbar.rotateRight(u);
 
-    // Grab the post-rotation ranges.
-    // After rotation, v is the parent and u is its child.
     auto pr = Tbar.getRange(v);
     auto cr = Tbar.getRange(u);
 
-    // Partition both trees on that new edge
     auto [A1, A2] = VectorRangeTreeMap::partitionAlongEdge(Tbar, pr, cr);
     auto [B1, B2] = VectorRangeTreeMap::partitionAlongEdge(Te, pr, cr);
 
-    // Sanity check, then recurse
+    // Mismatched partitions invalidate the decomposition; exact BFS remains the safe fallback.
     if (A1.original_inorder != B1.original_inorder ||
         A2.original_inorder != B2.original_inorder)
     {
@@ -1094,14 +1045,13 @@ int removeFreeEdge(const VectorRangeTreeMap &Ts,
     return 1 + Dist(A1, B1) + Dist(A2, B2);
 }
 
-// Forward declarations
 typedef std::pair<VectorRangeTreeMap, VectorRangeTreeMap> P2;
 bool hasFreeEdge(const VectorRangeTreeMap &, const VectorRangeTreeMap &, int &, bool &);
 
-// Definition: Brute-force BFS search for rotation distance
-// Parameters: T_s: source tree; T_e: target tree
-// Returns: minimum distance or INT_MAX if not found
-// Errors: returns INT_MAX on failures
+// Purpose: Brute-force BFS search for rotation distance
+// Inputs: T_s: source tree; T_e: target tree
+// Output: minimum distance or INT_MAX if not found
+// Failure: returns INT_MAX on failures
 int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
 {
     if (TreesEqual(T_s, T_e))
@@ -1121,21 +1071,16 @@ int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
 
         for (int v : cur.original_inorder)
         {
-            // try left-rotation
             if (cur.getRightChild(v) != VectorRangeTreeMap::NO_CHILD)
             {
                 auto tmp = cur;
                 tmp.rotateLeft(v);
 
-                // target reached?
                 if (TreesEqual(tmp, T_e))
                 {
                     return nextDist;
                 }
 
-                // free-edge shortcut is handled in Dist(); BFS should stay exact.
-
-                // else enqueue
                 auto key = treeToString(tmp);
                 if (!visited.count(key))
                 {
@@ -1144,21 +1089,16 @@ int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
                 }
             }
 
-            // try right rotation
             if (cur.getLeftChild(v) != VectorRangeTreeMap::NO_CHILD)
             {
                 auto tmp = cur;
                 tmp.rotateRight(v);
 
-                // target reached?
                 if (TreesEqual(tmp, T_e))
                 {
                     return nextDist;
                 }
 
-                // free-edge shortcut is handled in Dist(); BFS should stay exact.
-
-                // else enqueue
                 auto key = treeToString(tmp);
                 if (!visited.count(key))
                 {
@@ -1169,13 +1109,13 @@ int BFSSearch(const VectorRangeTreeMap &T_s, const VectorRangeTreeMap &T_e)
         }
     }
 
-    return INT_MAX; // should not be reached
+    // Rotation graphs are connected for equal node sets; exhaustion therefore indicates invalid input.
+    return INT_MAX;
 }
 
-// Definition: Clear memo cache then compute distance
-// Parameters: T_init: source tree; T_final: target tree
-// Returns: rotation distance
-// Errors: none
+// Purpose: Clear memo cache then compute distance
+// Inputs: T_init: source tree; T_final: target tree
+// Output: rotation distance
 int FindRotationDistance(const VectorRangeTreeMap &T_init,
                          const VectorRangeTreeMap &T_final)
 {
@@ -1183,10 +1123,10 @@ int FindRotationDistance(const VectorRangeTreeMap &T_init,
     return Dist(T_init, T_final);
 }
 
-// Definition: Run internal verification tests
-// Parameters: none
-// Returns: nothing
-// Errors: asserts on failure
+// Purpose: Run internal verification tests
+// Inputs: none
+// Output: nothing
+// Failure: asserts on failure
 void runAllTests()
 {
 
@@ -1195,22 +1135,18 @@ void runAllTests()
     std::vector<int> in = {0, 1, 2, 3, 4, 5, 6, 7, 8};
     T.build(pre, in);
 
-    // Partition along the edge 4→2:
     auto pr = T.getRange(4);
     auto cr = T.getRange(2);
     auto [A, B] = VectorRangeTreeMap::partitionAlongEdge(T, pr, cr);
 
-    // A should be the subtree rooted at 2: inorder {0,1,2,3}, preorder {2,1,0,3}
     assert(A.original_inorder == std::vector<int>({0, 1, 2, 3}));
     assert(A.original_preorder == std::vector<int>({2, 1, 0, 3}));
 
-    // B should be the remainder: inorder {4,5,6,7,8}, preorder {8,4,6,5,7}
     assert(B.original_inorder == std::vector<int>({4, 5, 6, 7, 8}));
     assert(B.original_preorder == std::vector<int>({8, 4, 6, 5, 7}));
 
     std::cout << "PASS partitionAlongEdge test\n";
 
-    // BFSSearch & Dist tests
     {
         VectorRangeTreeMap A;
         A.build({2, 1, 3}, {1, 2, 3});
@@ -1246,13 +1182,15 @@ void runAllTests()
         std::cout << "PASS free-edge: removeFreeEdge=1, Dist=1\n";
     }
     {
-        // Random BST sanity checks: Dist should match BFSSearch on small n.
-        // Helper builds preorder/inorder from a BST built by random insertion order.
+        // Small random trees use exhaustive BFS as an oracle for the optimized recurrence.
         auto buildBSTPreIn = [](int n, int seed) {
             struct Node {
                 int v;
                 Node *l = nullptr;
                 Node *r = nullptr;
+                // Purpose: Creates a temporary BST node for randomized oracle tests.
+                // Inputs: val: node label to store.
+                // Output: A node with no children.
                 explicit Node(int val) : v(val) {}
             };
             auto insert = [](Node *root, int val) -> Node * {
@@ -1317,10 +1255,10 @@ void runAllTests()
     std::cout << "All tests passed";
 }
 
-// Definition: Build preorder and inorder for a BST from shuffled insertion order
-// Parameters: n: node count; seed: shuffle seed
-// Returns: {preorder, inorder} vectors
-// Errors: returns empty vectors if n <= 0
+// Purpose: Build preorder and inorder for a BST from shuffled insertion order
+// Inputs: n: node count; seed: shuffle seed
+// Output: {preorder, inorder} vectors
+// Failure: returns empty vectors if n <= 0
 static std::pair<std::vector<int>, std::vector<int>> buildRandomBST(int n, int seed)
 {
     struct Node
@@ -1328,6 +1266,9 @@ static std::pair<std::vector<int>, std::vector<int>> buildRandomBST(int n, int s
         int v;
         Node *l = nullptr;
         Node *r = nullptr;
+        // Purpose: Creates a temporary BST node for deterministic input generation.
+        // Inputs: val: node label to store.
+        // Output: A node with no children.
         explicit Node(int val) : v(val) {}
     };
     auto insert = [](Node *root, int val) -> Node * {
@@ -1391,10 +1332,10 @@ static std::pair<std::vector<int>, std::vector<int>> buildRandomBST(int n, int s
     return {pre, in};
 }
 
-// Definition: Encode the tree as P:...;I:... for Java CLI compatibility
-// Parameters: T: tree to encode
-// Returns: encoded string
-// Errors: returns empty encodings if traversals are empty
+// Purpose: Encode the tree as P:...;I:... for Java CLI compatibility
+// Inputs: T: tree to encode
+// Output: encoded string
+// Failure: returns empty encodings if traversals are empty
 static std::string treeToPreInString(const VectorRangeTreeMap &T)
 {
     auto join = [](const std::vector<int> &vals) {
@@ -1412,10 +1353,10 @@ static std::string treeToPreInString(const VectorRangeTreeMap &T)
     return oss.str();
 }
 
-// Definition: Brute-force CLI entry that emits JSON per direction
-// Parameters: argc/argv: CLI args
-// Returns: exit code, 0 on success
-// Errors: prints to stderr on invalid args or unsupported cases
+// Purpose: Brute-force CLI entry that emits JSON per direction
+// Inputs: argc/argv: CLI args
+// Output: exit code, 0 on success
+// Failure: prints to stderr on invalid args or unsupported cases
 static int runCli(int argc, char **argv)
 {
     std::string case_type = "random";
@@ -1485,10 +1426,10 @@ static int runCli(int argc, char **argv)
 }
 
 #ifndef FLIPDIST_BINARY
-// Definition: Program entry point for bf_bst binary
-// Parameters: argc/argv: CLI args
-// Returns: exit code
-// Errors: none beyond runCli and runAllTests
+// Purpose: Program entry point for bf_bst binary
+// Inputs: argc/argv: CLI args
+// Output: exit code
+// Failure: none beyond runCli and runAllTests
 int main(int argc, char **argv)
 {
     if (argc > 1)

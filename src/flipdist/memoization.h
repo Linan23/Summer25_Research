@@ -157,12 +157,18 @@ extern ProfileStats g_profile;
 struct Key128 {
     std::uint64_t hi = 0;
     std::uint64_t lo = 0;
+    // Purpose: Compares two keys or state signatures for exact equality.
+    // Inputs: o: the value to compare with this instance.
+    // Output: True when all identity fields match; otherwise false.
     bool operator==(const Key128 &o) const {
         return hi == o.hi && lo == o.lo;
     }
 };
 
 struct Key128Hash {
+    // Purpose: Hashes a key or state signature for unordered containers.
+    // Inputs: The key or signature supplied to the call operator.
+    // Output: A hash code consistent with the corresponding equality operator.
     std::size_t operator()(const Key128 &k) const;
 };
 
@@ -228,10 +234,22 @@ extern std::unordered_map<Key128, KBounds, Key128Hash> g_kbounds;
 extern std::unordered_map<Key128, KBounds, Key128Hash> g_tds_bounds;
 extern std::unordered_map<Key128, KBounds, Key128Hash> g_tdi_bounds;
 
+// Purpose: Reports whether the plateau profile feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool plateauProfileEnabled();
+// Purpose: Resets plateau profile.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetPlateauProfile();
+// Purpose: Starts plateau profile run.
+// Inputs: case_type (const std::string &); n (int); seed (int); direction (const std::string &); clear_output_file (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void beginPlateauProfileRun(const std::string &case_type, int n, int seed,
                             const std::string &direction, bool clear_output_file);
+// Purpose: Records plateau state sample.
+// Inputs: state_key (const Key128 &); internal_edges (int); reduced_core_internal_edges (int); k (int); conflicts (int); legal_children (int); plateau_buckets (int); free_edge_hit (bool); start_branching_nodes (int); target_branching_nodes (int); start_max_branch_subtree_edges (int); target_max_branch_subtree_edges (int); chain_arm_count (int); broom_arm_count (int); start_degree_histogram (const std::string &); target_degree_histogram (const std::string &); motif (const std::string &); core_signature (const std::string &); branchy_reduction_triggered (bool); branchy_forced_cost (int); branchy_residual_edges (int); branchy_residual_motif (const std::string &); branchy_exact_bound_used (bool); branchy_exact_decision_used (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void notePlateauStateSample(const Key128 &state_key, int internal_edges, int reduced_core_internal_edges,
                             int k, int conflicts, int legal_children, int plateau_buckets,
                             bool free_edge_hit, int start_branching_nodes,
@@ -243,14 +261,35 @@ void notePlateauStateSample(const Key128 &state_key, int internal_edges, int red
                             bool branchy_reduction_triggered, int branchy_forced_cost,
                             int branchy_residual_edges, const std::string &branchy_residual_motif,
                             bool branchy_exact_bound_used, bool branchy_exact_decision_used);
+// Purpose: Records plateau state outcome.
+// Inputs: state_key (const Key128 &); outcome (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void notePlateauStateOutcome(const Key128 &state_key, const std::string &outcome);
+// Purpose: Finalizes plateau profile run.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void finalizePlateauProfileRun();
+// Purpose: Emits plateau profile jsonl.
+// Inputs: os (std::ostream &); case_type (const std::string &); n (int); seed (int); direction (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void emitPlateauProfileJsonl(std::ostream &os, const std::string &case_type, int n, int seed,
                              const std::string &direction);
+// Purpose: Reports whether the tdi post i profile feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdiPostIProfileEnabled();
+// Purpose: Resets tdi post i profile.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetTdiPostIProfile();
+// Purpose: Starts tdi post i profile run.
+// Inputs: case_type (const std::string &); n (int); seed (int); direction (const std::string &); clear_output_file (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void beginTdiPostIProfileRun(const std::string &case_type, int n, int seed,
                              const std::string &direction, bool clear_output_file);
+// Purpose: Records tdi post i prune sample.
+// Inputs: state_key (const Key128 &); remaining_k (int); lower_bound (int); conflicts (int); s_size (int); start_branching_nodes (int); target_branching_nodes (int); start_degree_histogram (const std::string &); target_degree_histogram (const std::string &); start_tree (const std::string &); target_tree (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void noteTdiPostIPruneSample(const Key128 &state_key, int remaining_k, int lower_bound,
                              int conflicts, int s_size, int start_branching_nodes,
                              int target_branching_nodes,
@@ -258,20 +297,47 @@ void noteTdiPostIPruneSample(const Key128 &state_key, int remaining_k, int lower
                              const std::string &target_degree_histogram,
                              const std::string &start_tree,
                              const std::string &target_tree);
+// Purpose: Emits tdi post i profile jsonl.
+// Inputs: os (std::ostream &); case_type (const std::string &); n (int); seed (int); direction (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void emitTdiPostIProfileJsonl(std::ostream &os, const std::string &case_type, int n, int seed,
                               const std::string &direction);
+// Purpose: Finalizes tdi post i profile run.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void finalizeTdiPostIProfileRun();
 
+// Purpose: Removes duplicates from s pairs.
+// Inputs: pairs (std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &).
+// Output: No return value; updates referenced outputs or shared state.
 void dedupeSPairs(std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &pairs);
 
+// Purpose: Builds key pair.
+// Inputs: T_init (const VectorRangeTreeMap &); T_final (const VectorRangeTreeMap &).
+// Output: The resulting Key128 value.
 Key128 makeKeyPair(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final);
+// Purpose: Builds key flip.
+// Inputs: T_init (const VectorRangeTreeMap &); T_final (const VectorRangeTreeMap &); k (int).
+// Output: The resulting Key128 value.
 Key128 makeKeyFlip(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k);
+// Purpose: Builds key i.
+// Inputs: T_init (const VectorRangeTreeMap &); T_final (const VectorRangeTreeMap &); k (int); I (const std::vector<std::pair<int, int>> &).
+// Output: The resulting Key128 value.
 Key128 makeKeyI(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final, int k,
                 const std::vector<std::pair<int, int>> &I);
+// Purpose: Builds key s.
+// Inputs: T_init (const VectorRangeTreeMap &); T_end (const VectorRangeTreeMap &); k (int); S (const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &).
+// Output: The resulting Key128 value.
 Key128 makeKeyS(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end, int k,
                 const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S);
+// Purpose: Builds key s base.
+// Inputs: T_init (const VectorRangeTreeMap &); T_end (const VectorRangeTreeMap &); S (const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &).
+// Output: The resulting Key128 value.
 Key128 makeKeySBase(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_end,
                     const std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &S);
+// Purpose: Builds key i base.
+// Inputs: T_init (const VectorRangeTreeMap &); T_final (const VectorRangeTreeMap &); I (const std::vector<std::pair<int, int>> &).
+// Output: The resulting Key128 value.
 Key128 makeKeyIBase(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final,
                     const std::vector<std::pair<int, int>> &I);
 
@@ -287,13 +353,25 @@ struct EmptySBaseKeys {
     Key128 bounds_key{};
 };
 
+// Purpose: Builds empty s base keys.
+// Inputs: T_init (const VectorRangeTreeMap &); T_end (const VectorRangeTreeMap &).
+// Output: The resulting EmptySBaseKeys value.
 EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap &T_init,
                                   const VectorRangeTreeMap &T_end);
+// Purpose: Builds empty s keys.
+// Inputs: T_init (const VectorRangeTreeMap &); T_end (const VectorRangeTreeMap &); k (int).
+// Output: The resulting EmptySKeys value.
 EmptySKeys makeEmptySKeys(const VectorRangeTreeMap &T_init,
                           const VectorRangeTreeMap &T_end,
                           int k);
+// Purpose: Builds empty s exact key from base.
+// Inputs: exact_base_key (Key128); k (int).
+// Output: The resulting Key128 value.
 Key128 makeEmptySExactKeyFromBase(Key128 exact_base_key, int k);
 
+// Purpose: Attempts bounds prune.
+// Inputs: bounds_map (const std::unordered_map<Key128, KBounds, Key128Hash> &); key (const Key128 &); k (int); value_out (bool &).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 inline bool tryBoundsPrune(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
                            const Key128 &key, int k, bool &value_out) {
     auto it = bounds_map.find(key);
@@ -310,6 +388,9 @@ inline bool tryBoundsPrune(const std::unordered_map<Key128, KBounds, Key128Hash>
     return false;
 }
 
+// Purpose: Updates bounds.
+// Inputs: bounds_map (std::unordered_map<Key128, KBounds, Key128Hash> &); key (const Key128 &); k (int); value (bool).
+// Output: No return value; updates referenced outputs or shared state.
 inline void updateBounds(std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
                          const Key128 &key, int k, bool value) {
     auto &b = bounds_map[key];
@@ -329,6 +410,9 @@ inline void updateBounds(std::unordered_map<Key128, KBounds, Key128Hash> &bounds
     }
 }
 
+// Purpose: Derives the first unfailed budget from learned bounds.
+// Inputs: bounds_map (const std::unordered_map<Key128, KBounds, Key128Hash> &); key (const Key128 &).
+// Output: The computed value or status code.
 inline int requiredBudgetFromBounds(const std::unordered_map<Key128, KBounds, Key128Hash> &bounds_map,
                                     const Key128 &key) {
     auto it = bounds_map.find(key);
@@ -336,20 +420,38 @@ inline int requiredBudgetFromBounds(const std::unordered_map<Key128, KBounds, Ke
     return std::max(0, it->second.max_fail + 1);
 }
 
+// Purpose: Resets memo.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetMemo();
+// Purpose: Initializes profiling state from the active environment configuration.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void initProfile();
+// Purpose: Reports abort requested.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool profileAbortRequested();
 struct SearchAbortException {};
+// Purpose: Throws when if profile abort.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void throwIfProfileAbort();
 
 struct ScopedTimer {
     double *acc = nullptr;
     std::chrono::steady_clock::time_point t0;
+    // Purpose: Starts timing when an accumulator is provided.
+    // Inputs: a: optional millisecond accumulator to update when the scope ends.
+    // Output: A scope timer whose destructor records elapsed time.
     explicit ScopedTimer(double *a) : acc(a) {
         if (acc) {
             t0 = std::chrono::steady_clock::now();
         }
     }
+    // Purpose: Adds this scope's elapsed milliseconds to the configured accumulator.
+    // Inputs: None.
+    // Output: No return value; updates the accumulator passed to the constructor.
     ~ScopedTimer() {
         if (acc) {
             auto t1 = std::chrono::steady_clock::now();
@@ -358,4 +460,7 @@ struct ScopedTimer {
     }
 };
 
+// Purpose: Emits a diagnostic message when debug logging is enabled.
+// Inputs: msg (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void debugPrint(const std::string &msg);

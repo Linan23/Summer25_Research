@@ -35,6 +35,9 @@ static std::string g_tdi_posti_direction;
 static int g_tdi_posti_n = -1;
 static int g_tdi_posti_seed = -1;
 
+// Purpose: Retrieves the configured plateau flush every samples value.
+// Inputs: None.
+// Output: The computed value or status code.
 static int plateauFlushEverySamples() {
     const char *env = std::getenv("FLIPDIST_PROFILE_PLATEAU_FLUSH_EVERY");
     if (!env) return 256;
@@ -42,6 +45,9 @@ static int plateauFlushEverySamples() {
     return value > 0 ? value : 256;
 }
 
+// Purpose: Retrieves the configured plateau flush interval ms value.
+// Inputs: None.
+// Output: The computed value or status code.
 static int plateauFlushIntervalMs() {
     const char *env = std::getenv("FLIPDIST_PROFILE_PLATEAU_FLUSH_MS");
     if (!env) return 500;
@@ -49,6 +55,9 @@ static int plateauFlushIntervalMs() {
     return value > 0 ? value : 500;
 }
 
+// Purpose: Hashes a 128-bit memoization key.
+// Inputs: None.
+// Output: The computed size_t value.
 size_t Key128Hash::operator()(const Key128& k) const {
     uint64_t h = k.hi;
     h ^= (k.lo + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
@@ -60,18 +69,27 @@ struct TreeFingerprint {
     uint64_t h2 = 0;
 };
 
+// Purpose: Mixes one value into an FNV hash.
+// Inputs: h (uint64_t); v (uint64_t).
+// Output: The computed uint64_t value.
 static uint64_t fnvMix(uint64_t h, uint64_t v) {
     h ^= v;
     h *= 1099511628211ULL;
     return h;
 }
 
+// Purpose: Encodes an edge as a stable integer key.
+// Inputs: e (const std::pair<int,int>&).
+// Output: The computed uint64_t value.
 static uint64_t edgeKey(const std::pair<int,int>& e) {
     int a = std::min(e.first, e.second);
     int b = std::max(e.first, e.second);
     return (static_cast<uint64_t>(a) << 32) ^ static_cast<uint32_t>(b);
 }
 
+// Purpose: Reports whether onical edge.
+// Inputs: e (std::pair<int,int>).
+// Output: The resulting std::pair<int,int> value.
 static std::pair<int,int> canonicalEdge(std::pair<int,int> e) {
     if (e.second < e.first) {
         std::swap(e.first, e.second);
@@ -79,6 +97,9 @@ static std::pair<int,int> canonicalEdge(std::pair<int,int> e) {
     return e;
 }
 
+// Purpose: Reports whether onical pair.
+// Inputs: p (std::pair<std::pair<int,int>, std::pair<int,int>>).
+// Output: The resulting std::pair<std::pair<int,int>, std::pair<int,int>> value.
 static std::pair<std::pair<int,int>, std::pair<int,int>> canonicalPair(
     std::pair<std::pair<int,int>, std::pair<int,int>> p) {
     p.first = canonicalEdge(p.first);
@@ -89,6 +110,9 @@ static std::pair<std::pair<int,int>, std::pair<int,int>> canonicalPair(
     return p;
 }
 
+// Purpose: Reports whether h edge set.
+// Inputs: edges (const std::vector<std::pair<int,int>>&).
+// Output: The computed uint64_t value.
 static uint64_t hashEdgeSet(const std::vector<std::pair<int,int>>& edges) {
     std::vector<uint64_t> keys;
     keys.reserve(edges.size());
@@ -101,6 +125,9 @@ static uint64_t hashEdgeSet(const std::vector<std::pair<int,int>>& edges) {
     return h;
 }
 
+// Purpose: Reports whether h pair set.
+// Inputs: pairs (const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&).
+// Output: The computed uint64_t value.
 static uint64_t hashPairSet(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& pairs) {
     std::vector<std::pair<uint64_t,uint64_t>> keys;
     keys.reserve(pairs.size());
@@ -119,6 +146,9 @@ static uint64_t hashPairSet(const std::vector<std::pair<std::pair<int,int>, std:
     return h;
 }
 
+// Purpose: Removes duplicates from s pairs.
+// Inputs: pairs (std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&).
+// Output: No return value; updates referenced outputs or shared state.
 void dedupeSPairs(std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& pairs) {
     std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>> out;
     out.reserve(pairs.size());
@@ -160,16 +190,25 @@ void dedupeSPairs(std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>
     pairs.swap(out);
 }
 
+// Purpose: Mixes key.
+// Inputs: k (Key128&); v (uint64_t).
+// Output: No return value; updates referenced outputs or shared state.
 static void mixKey(Key128& k, uint64_t v) {
     k.hi = fnvMix(k.hi, v);
     k.lo = fnvMix(k.lo, v ^ 0x9e3779b97f4a7c15ULL);
 }
 
+// Purpose: Mixes fingerprint.
+// Inputs: fp (TreeFingerprint&); v (uint64_t).
+// Output: No return value; updates referenced outputs or shared state.
 static void mixFingerprint(TreeFingerprint& fp, uint64_t v) {
     fp.h1 = fnvMix(fp.h1, v);
     fp.h2 = fnvMix(fp.h2, v ^ 0x9e3779b97f4a7c15ULL);
 }
 
+// Purpose: Computes a stable structural fingerprint for a tree.
+// Inputs: T (const VectorRangeTreeMap&).
+// Output: The resulting TreeFingerprint value.
 static TreeFingerprint treeFingerprint(const VectorRangeTreeMap& T) {
     if (T.fingerprint_valid) {
         return TreeFingerprint{T.fingerprint_h1, T.fingerprint_h2};
@@ -198,6 +237,9 @@ static TreeFingerprint treeFingerprint(const VectorRangeTreeMap& T) {
     return out;
 }
 
+// Purpose: Builds tree pair key from fingerprints.
+// Inputs: tag (int); a (const TreeFingerprint&); b (const TreeFingerprint&).
+// Output: The resulting Key128 value.
 static Key128 makeTreePairKeyFromFingerprints(int tag, const TreeFingerprint& a,
                                               const TreeFingerprint& b) {
     Key128 key{1469598103934665603ULL, 1099511628211ULL};
@@ -207,12 +249,18 @@ static Key128 makeTreePairKeyFromFingerprints(int tag, const TreeFingerprint& a,
     return key;
 }
 
+// Purpose: Builds key pair.
+// Inputs: T_init (const VectorRangeTreeMap&); T_final (const VectorRangeTreeMap&).
+// Output: The resulting Key128 value.
 Key128 makeKeyPair(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final) {
     TreeFingerprint a = treeFingerprint(T_init);
     TreeFingerprint b = treeFingerprint(T_final);
     return makeTreePairKeyFromFingerprints(1, a, b);
 }
 
+// Purpose: Builds key flip.
+// Inputs: T_init (const VectorRangeTreeMap&); T_final (const VectorRangeTreeMap&); k (int).
+// Output: The resulting Key128 value.
 Key128 makeKeyFlip(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k) {
     TreeFingerprint a = treeFingerprint(T_init);
     TreeFingerprint b = treeFingerprint(T_final);
@@ -224,6 +272,9 @@ Key128 makeKeyFlip(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T
     return key;
 }
 
+// Purpose: Builds key i.
+// Inputs: T_init (const VectorRangeTreeMap&); T_final (const VectorRangeTreeMap&); k (int); I (const std::vector<std::pair<int,int>>&).
+// Output: The resulting Key128 value.
 Key128 makeKeyI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final, int k,
                        const std::vector<std::pair<int,int>>& I) {
     TreeFingerprint a = treeFingerprint(T_init);
@@ -239,6 +290,9 @@ Key128 makeKeyI(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_fi
     return key;
 }
 
+// Purpose: Builds key s.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int); S (const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&).
+// Output: The resulting Key128 value.
 Key128 makeKeyS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end, int k,
                        const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
     uint64_t h = hashPairSet(S);
@@ -254,6 +308,9 @@ Key128 makeKeyS(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_en
     return key;
 }
 
+// Purpose: Builds key s base.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); S (const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&).
+// Output: The resulting Key128 value.
 Key128 makeKeySBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_end,
                            const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
     uint64_t h = hashPairSet(S);
@@ -268,6 +325,9 @@ Key128 makeKeySBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& 
     return key;
 }
 
+// Purpose: Builds empty s keys.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&); k (int).
+// Output: The resulting EmptySKeys value.
 EmptySKeys makeEmptySKeys(const VectorRangeTreeMap& T_init,
                           const VectorRangeTreeMap& T_end,
                           int k) {
@@ -288,11 +348,17 @@ EmptySKeys makeEmptySKeys(const VectorRangeTreeMap& T_init,
     return keys;
 }
 
+// Purpose: Builds empty s exact key from base.
+// Inputs: exact_base_key (Key128); k (int).
+// Output: The resulting Key128 value.
 Key128 makeEmptySExactKeyFromBase(Key128 exact_base_key, int k) {
     mixKey(exact_base_key, static_cast<uint64_t>(k));
     return exact_base_key;
 }
 
+// Purpose: Builds empty s base keys.
+// Inputs: T_init (const VectorRangeTreeMap&); T_end (const VectorRangeTreeMap&).
+// Output: The resulting EmptySBaseKeys value.
 EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap& T_init,
                                   const VectorRangeTreeMap& T_end) {
     const TreeFingerprint a = treeFingerprint(T_init);
@@ -307,6 +373,9 @@ EmptySBaseKeys makeEmptySBaseKeys(const VectorRangeTreeMap& T_init,
     return keys;
 }
 
+// Purpose: Builds key i base.
+// Inputs: T_init (const VectorRangeTreeMap&); T_final (const VectorRangeTreeMap&); I (const std::vector<std::pair<int,int>>&).
+// Output: The resulting Key128 value.
 Key128 makeKeyIBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final,
                            const std::vector<std::pair<int,int>>& I) {
     uint64_t h = hashEdgeSet(I);
@@ -321,6 +390,9 @@ Key128 makeKeyIBase(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& 
     return key;
 }
 
+// Purpose: Resets memo.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetMemo() {
     g_memo_flipdist.clear();
     g_memo_tdi.clear();
@@ -331,6 +403,9 @@ void resetMemo() {
     resetAlgorithmCaches();
 }
 
+// Purpose: Initializes profiling state from the active environment configuration.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void initProfile() {
     if (g_profile.enabled) return;
     static bool profile_env_checked = false;
@@ -351,14 +426,23 @@ void initProfile() {
     }
 }
 
+// Purpose: Reports whether the plateau profile feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool plateauProfileEnabled() {
     return g_profile.enabled && g_plateau_profile_enabled;
 }
 
+// Purpose: Reports whether the tdi post i profile feature is enabled.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool tdiPostIProfileEnabled() {
     return g_profile.enabled && g_tdi_posti_profile_enabled;
 }
 
+// Purpose: Resets plateau profile.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetPlateauProfile() {
     g_plateau_states.clear();
     g_plateau_output_dirty = false;
@@ -371,6 +455,9 @@ void resetPlateauProfile() {
     g_plateau_last_flush = std::chrono::steady_clock::now();
 }
 
+// Purpose: Resets tdi post i profile.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void resetTdiPostIProfile() {
     g_tdi_posti_states.clear();
     g_tdi_posti_case_type.clear();
@@ -379,6 +466,9 @@ void resetTdiPostIProfile() {
     g_tdi_posti_seed = -1;
 }
 
+// Purpose: Writes plateau profile jsonl.
+// Inputs: os (std::ostream &); case_type (const std::string &); n (int); seed (int); direction (const std::string &); record_type (const std::string &); snapshot_seq (std::uint64_t).
+// Output: No return value; updates referenced outputs or shared state.
 static void writePlateauProfileJsonl(std::ostream &os, const std::string &case_type, int n, int seed,
                                      const std::string &direction, const std::string &record_type,
                                      std::uint64_t snapshot_seq) {
@@ -439,6 +529,9 @@ static void writePlateauProfileJsonl(std::ostream &os, const std::string &case_t
     }
 }
 
+// Purpose: Flushes plateau profile to file.
+// Inputs: final_flush (bool).
+// Output: No return value; updates referenced outputs or shared state.
 static void flushPlateauProfileToFile(bool final_flush) {
     if (!plateauProfileEnabled() || g_plateau_output_path.empty() || g_plateau_states.empty()) return;
     if (!final_flush && !g_plateau_output_dirty) return;
@@ -456,6 +549,9 @@ static void flushPlateauProfileToFile(bool final_flush) {
     }
 }
 
+// Purpose: Flushes a plateau-profile snapshot when its count or time threshold is reached.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 static void maybeFlushPlateauProfileSnapshot() {
     if (!plateauProfileEnabled() || g_plateau_output_path.empty()) return;
     if (!g_plateau_output_dirty) return;
@@ -468,6 +564,9 @@ static void maybeFlushPlateauProfileSnapshot() {
     }
 }
 
+// Purpose: Starts plateau profile run.
+// Inputs: case_type (const std::string &); n (int); seed (int); direction (const std::string &); clear_output_file (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void beginPlateauProfileRun(const std::string &case_type, int n, int seed,
                             const std::string &direction, bool clear_output_file) {
     if (!plateauProfileEnabled()) return;
@@ -486,6 +585,9 @@ void beginPlateauProfileRun(const std::string &case_type, int n, int seed,
     }
 }
 
+// Purpose: Starts tdi post i profile run.
+// Inputs: case_type (const std::string &); n (int); seed (int); direction (const std::string &); clear_output_file (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void beginTdiPostIProfileRun(const std::string &case_type, int n, int seed,
                              const std::string &direction, bool clear_output_file) {
     if (!tdiPostIProfileEnabled()) return;
@@ -500,6 +602,9 @@ void beginTdiPostIProfileRun(const std::string &case_type, int n, int seed,
     }
 }
 
+// Purpose: Records plateau state sample.
+// Inputs: state_key (const Key128 &); internal_edges (int); reduced_core_internal_edges (int); k (int); conflicts (int); legal_children (int); plateau_buckets (int); free_edge_hit (bool); start_branching_nodes (int); target_branching_nodes (int); start_max_branch_subtree_edges (int); target_max_branch_subtree_edges (int); chain_arm_count (int); broom_arm_count (int); start_degree_histogram (const std::string &); target_degree_histogram (const std::string &); motif (const std::string &); core_signature (const std::string &); branchy_reduction_triggered (bool); branchy_forced_cost (int); branchy_residual_edges (int); branchy_residual_motif (const std::string &); branchy_exact_bound_used (bool); branchy_exact_decision_used (bool).
+// Output: No return value; updates referenced outputs or shared state.
 void notePlateauStateSample(const Key128 &state_key, int internal_edges, int reduced_core_internal_edges,
                             int k, int conflicts, int legal_children, int plateau_buckets,
                             bool free_edge_hit, int start_branching_nodes,
@@ -556,6 +661,9 @@ void notePlateauStateSample(const Key128 &state_key, int internal_edges, int red
     maybeFlushPlateauProfileSnapshot();
 }
 
+// Purpose: Records plateau state outcome.
+// Inputs: state_key (const Key128 &); outcome (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void notePlateauStateOutcome(const Key128 &state_key, const std::string &outcome) {
     if (!plateauProfileEnabled()) return;
     auto it = g_plateau_states.find(state_key);
@@ -567,6 +675,9 @@ void notePlateauStateOutcome(const Key128 &state_key, const std::string &outcome
     maybeFlushPlateauProfileSnapshot();
 }
 
+// Purpose: Records tdi post i prune sample.
+// Inputs: state_key (const Key128 &); remaining_k (int); lower_bound (int); conflicts (int); s_size (int); start_branching_nodes (int); target_branching_nodes (int); start_degree_histogram (const std::string &); target_degree_histogram (const std::string &); start_tree (const std::string &); target_tree (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void noteTdiPostIPruneSample(const Key128 &state_key, int remaining_k, int lower_bound,
                              int conflicts, int s_size, int start_branching_nodes,
                              int target_branching_nodes,
@@ -592,17 +703,26 @@ void noteTdiPostIPruneSample(const Key128 &state_key, int remaining_k, int lower
     if (rec.max_lower_bound < 0 || lower_bound > rec.max_lower_bound) rec.max_lower_bound = lower_bound;
 }
 
+// Purpose: Emits plateau profile jsonl.
+// Inputs: os (std::ostream &); case_type (const std::string &); n (int); seed (int); direction (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void emitPlateauProfileJsonl(std::ostream &os, const std::string &case_type, int n, int seed,
                              const std::string &direction) {
     writePlateauProfileJsonl(os, case_type, n, seed, direction, "plateau_state", 0);
 }
 
+// Purpose: Finalizes plateau profile run.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void finalizePlateauProfileRun() {
     if (!plateauProfileEnabled()) return;
     flushPlateauProfileToFile(true);
     g_plateau_output_dirty = false;
 }
 
+// Purpose: Emits tdi post i profile jsonl.
+// Inputs: os (std::ostream &); case_type (const std::string &); n (int); seed (int); direction (const std::string &).
+// Output: No return value; updates referenced outputs or shared state.
 void emitTdiPostIProfileJsonl(std::ostream &os, const std::string &case_type, int n, int seed,
                               const std::string &direction) {
     if (!tdiPostIProfileEnabled()) return;
@@ -644,6 +764,9 @@ void emitTdiPostIProfileJsonl(std::ostream &os, const std::string &case_type, in
     }
 }
 
+// Purpose: Finalizes tdi post i profile run.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void finalizeTdiPostIProfileRun() {
     if (!tdiPostIProfileEnabled()) return;
     if (!g_tdi_posti_output_path.empty() && !g_tdi_posti_states.empty()) {
@@ -657,6 +780,9 @@ void finalizeTdiPostIProfileRun() {
     resetTdiPostIProfile();
 }
 
+// Purpose: Reports abort requested.
+// Inputs: None.
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool profileAbortRequested() {
     if (g_profile.abort_ms <= 0) return false;
     auto now = std::chrono::steady_clock::now();
@@ -664,16 +790,18 @@ bool profileAbortRequested() {
     return elapsed_ms > g_profile.abort_ms;
 }
 
+// Purpose: Throws when if profile abort.
+// Inputs: None.
+// Output: No return value; updates referenced outputs or shared state.
 void throwIfProfileAbort() {
     if (profileAbortRequested()) {
         throw SearchAbortException{};
     }
 }
 
-// Definition: Emit a debug line when DEBUG is enabled
-// Parameters: msg: message to print
-// Returns: nothing
-// Errors: none
+// Purpose: Emit a debug line when DEBUG is enabled
+// Inputs: msg: message to print
+// Output: nothing
 void debugPrint(const std::string& msg) {
     if (DEBUG) {
         std::cout << "[DEBUG] " << msg << std::endl;
