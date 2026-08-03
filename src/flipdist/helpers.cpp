@@ -7,12 +7,10 @@
 #include <limits>
 #include <functional>
 
-// Helper Functions
-
-// Definition: Collect internal parent->child edges over original nodes
-// Parameters: T: tree to scan
-// Returns: vector of (parent, child) edges
-// Errors: returns empty on invalid trees or if traversal fails
+// Purpose: Collect internal parent->child edges over original nodes
+// Inputs: T: tree to scan
+// Output: vector of (parent, child) edges
+// Failure: returns empty on invalid trees or if traversal fails
 std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap& T) {
     std::vector<std::pair<int,int>> edges;
     try {
@@ -44,10 +42,10 @@ std::vector<std::pair<int,int>> getInternalEdges(const VectorRangeTreeMap& T) {
     return edges;
 }
 
-// Definition: Count internal parent->child edges in a tree
-// Parameters: T: tree to scan
-// Returns: number of edges
-// Errors: returns 0 on invalid trees or traversal failure
+// Purpose: Count internal parent->child edges in a tree
+// Inputs: T: tree to scan
+// Output: number of edges
+// Failure: returns 0 on invalid trees or traversal failure
 int countInternalEdges(const VectorRangeTreeMap& T) {
     if (T.original_inorder.empty()) {
         return 0;
@@ -55,10 +53,10 @@ int countInternalEdges(const VectorRangeTreeMap& T) {
     return static_cast<int>(T.original_inorder.size()) - 1;
 }
 
-// Definition: Count edges in T_init that are not present in T_final (by range)
-// Parameters: T_init: source tree; T_final: target tree
-// Returns: conflict count
-// Errors: returns 0 on invalid trees
+// Purpose: Count edges in T_init that are not present in T_final (by range)
+// Inputs: T_init: source tree; T_final: target tree
+// Output: conflict count
+// Failure: returns 0 on invalid trees
 int countConflictEdges(const VectorRangeTreeMap& T_init, const VectorRangeTreeMap& T_final) {
     if (T_init.original_inorder.empty() || T_final.original_inorder.empty()) return 0;
     auto targetEdges = buildTargetSet(T_final);
@@ -79,10 +77,9 @@ int countConflictEdges(const VectorRangeTreeMap& T_init, const VectorRangeTreeMa
     return conflicts;
 }
 
-// Definition: Check if two edges share a node
-// Parameters: e1: first edge; e2: second edge
-// Returns: true if they share an endpoint, else false
-// Errors: none
+// Purpose: Check if two edges share a node
+// Inputs: e1: first edge; e2: second edge
+// Output: true if they share an endpoint, else false
 bool areAdjacent(const std::pair<int,int>& e1, const std::pair<int,int>& e2) {
     return e1.first == e2.first || e1.first == e2.second ||
            e1.second == e2.first || e1.second == e2.second;
@@ -94,20 +91,20 @@ struct EndpointEntry {
     bool boundary = false;
 };
 
-// Definition: Compute vertex count (leaf count) for endpoint indexing
-// Parameters: T: tree to inspect
-// Returns: number of polygon vertices (leaf count)
-// Errors: returns 0 on invalid tree
+// Purpose: Compute vertex count (leaf count) for endpoint indexing
+// Inputs: T: tree to inspect
+// Output: number of polygon vertices (leaf count)
+// Failure: returns 0 on invalid tree
 static int vertexCount(const VectorRangeTreeMap& T) {
     if (T.root < 0 || !T.isOriginal(T.root)) return 0;
     auto r = T.getRange(T.root);
     return r.second + 1;
 }
 
-// Definition: Build endpoint index for diagonals plus boundary edges
-// Parameters: T: tree; endpointMap/diagMap: output maps
-// Returns: nothing
-// Errors: outputs may be empty on invalid trees
+// Purpose: Build endpoint index for diagonals plus boundary edges
+// Inputs: T: tree; endpointMap/diagMap: output maps
+// Output: nothing
+// Failure: outputs may be empty on invalid trees
 static void buildEndpointIndex(const VectorRangeTreeMap& T,
                                std::unordered_map<int, std::vector<EndpointEntry>>& endpointMap) {
     endpointMap.clear();
@@ -127,7 +124,7 @@ static void buildEndpointIndex(const VectorRangeTreeMap& T,
         endpointMap[R].push_back({L, edge, false});
     }
 
-    // Add boundary edges (cycle)
+    // Polygon boundaries close the cyclic ordering used to locate each diagonal's neighbors.
     for (int v = 0; v < vcount; v++) {
         int prev = (v - 1 + vcount) % vcount;
         int next = (v + 1) % vcount;
@@ -136,10 +133,10 @@ static void buildEndpointIndex(const VectorRangeTreeMap& T,
     }
 }
 
-// Definition: Pick the two neighboring edges around an endpoint for a diagonal
-// Parameters: endpoint: fixed endpoint; other: other endpoint of diagonal; vcount: vertex count; endpointMap: incident edges
-// Returns: pair of edges (boundary edges use {-1,-1})
-// Errors: returns boundary pair on missing data
+// Purpose: Pick the two neighboring edges around an endpoint for a diagonal
+// Inputs: endpoint: fixed endpoint; other: other endpoint of diagonal; vcount: vertex count; endpointMap: incident edges
+// Output: pair of edges (boundary edges use {-1,-1})
+// Failure: returns boundary pair on missing data
 static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPair(
         int endpoint,
         int other,
@@ -189,6 +186,9 @@ static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPair(
     return {e1, e2};
 }
 
+// Purpose: Finds the two incident edges adjacent to a diagonal in cyclic endpoint order.
+// Inputs: endpoint (int); other (int); vcount (int); entries (const std::vector<EndpointEntry>&).
+// Output: The resulting std::pair<std::pair<int,int>, std::pair<int,int>> value.
 static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPairFromEntries(
         int endpoint,
         int other,
@@ -253,10 +253,10 @@ static std::pair<std::pair<int,int>, std::pair<int,int>> pickNeighborPairFromEnt
     return {e1, e2};
 }
 
-// Definition: Build a deep copy while refreshing preorder metadata
-// Parameters: T: tree to copy
-// Returns: copied tree, or an empty tree on failure
-// Errors: returns empty on invalid trees or reconstruction failure
+// Purpose: Build a deep copy while refreshing preorder metadata
+// Inputs: T: tree to copy
+// Output: copied tree, or an empty tree on failure
+// Failure: returns empty on invalid trees or reconstruction failure
 VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap& T) {
     try {
         if (T.root < 0 || !T.isOriginal(T.root) || T.original_inorder.empty()) {
@@ -304,10 +304,10 @@ VectorRangeTreeMap safeCopyTree(const VectorRangeTreeMap& T) {
     }
 }
 
-// Definition: Check whether parent->child is a direct edge
-// Parameters: T: tree to check; parent: parent node id; child: child node id
-// Returns: true if parent has child as a direct left/right child
-// Errors: returns false on invalid nodes or tree access failures
+// Purpose: Check whether parent->child is a direct edge
+// Inputs: T: tree to check; parent: parent node id; child: child node id
+// Output: true if parent has child as a direct left/right child
+// Failure: returns false on invalid nodes or tree access failures
 bool hasParentChildEdge(const VectorRangeTreeMap& T, int parent, int child) {
     try {
         if (!T.isOriginal(parent) || !T.isOriginal(child)) return false;
@@ -319,10 +319,10 @@ bool hasParentChildEdge(const VectorRangeTreeMap& T, int parent, int child) {
     }
 }
 
-// Definition: Resolve an undirected edge to a valid parent->child orientation
-// Parameters: T: tree to check; edge: undirected node pair
-// Returns: oriented {parent, child} if edge exists, else {-1, -1}
-// Errors: returns {-1, -1} on invalid nodes or if edge not present
+// Purpose: Resolve an undirected edge to a valid parent->child orientation
+// Inputs: T: tree to check; edge: undirected node pair
+// Output: oriented {parent, child} if edge exists, else {-1, -1}
+// Failure: returns {-1, -1} on invalid nodes or if edge not present
 std::pair<int,int> orientEdge(const VectorRangeTreeMap& T, const std::pair<int,int>& edge) {
     if (hasParentChildEdge(T, edge.first, edge.second)) {
         return edge;
@@ -333,10 +333,10 @@ std::pair<int,int> orientEdge(const VectorRangeTreeMap& T, const std::pair<int,i
     return {-1, -1};
 }
 
-// Definition: Find a rotatable edge that would insert a target edge
-// Parameters: T_init: current tree; T_final: target tree
-// Returns: {true, edge} if a free edge exists, otherwise {false, {-1,-1}}
-// Errors: returns false on invalid trees or if rotations fail
+// Purpose: Find a rotatable edge that would insert a target edge
+// Inputs: T_init: current tree; T_final: target tree
+// Output: {true, edge} if a free edge exists, otherwise {false, {-1,-1}}
+// Failure: returns false on invalid trees or if rotations fail
 std::pair<bool, std::pair<int,int>> findFreeEdge(const VectorRangeTreeMap& T_init,
                                                  const VectorRangeTreeMap& T_final) {
     int pivot = -1;
@@ -351,10 +351,10 @@ std::pair<bool, std::pair<int,int>> findFreeEdge(const VectorRangeTreeMap& T_ini
     return {true, {pivot, child}};
 }
 
-// Definition: Try to decompose along a common edge shared by both trees
-// Parameters: T_init: source tree; T_final: target tree; k: budget; handled: set true if a valid common edge is processed
-// Returns: true if any decomposition succeeds within k
-// Errors: returns false if no valid common edge is found or no split succeeds
+// Purpose: Try to decompose along a common edge shared by both trees
+// Inputs: T_init: source tree; T_final: target tree; k: budget; handled: set true if a valid common edge is processed
+// Output: true if any decomposition succeeds within k
+// Failure: returns false if no valid common edge is found or no split succeeds
 bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
                                 const VectorRangeTreeMap& T_final,
                                 int k,
@@ -414,7 +414,7 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
 
         const Key128 p1_key = makeKeyPair(A1, B1);
         const Key128 p2_key = makeKeyPair(A2, B2);
-        // Note: outer boundsMinSuccess is intentionally reused here.
+        // Global learned bounds remain valid for both partitions and avoid repeating solved budgets.
         int lb1 = std::max(conf1, requiredBudgetFromBounds(g_kbounds, p1_key));
         int lb2 = std::max(conf2, requiredBudgetFromBounds(g_kbounds, p2_key));
 
@@ -551,10 +551,10 @@ bool tryCommonEdgeDecomposition(const VectorRangeTreeMap& T_init,
     return false;
 }
 
-// Definition: Enumerate all independent edge subsets
-// Parameters: edges: full edge list; index: current position; current: working subset; result: output list
-// Returns: nothing; result is appended in-place
-// Errors: none; may be expensive for large edge sets
+// Purpose: Enumerate all independent edge subsets
+// Inputs: edges: full edge list; index: current position; current: working subset; result: output list
+// Output: nothing; result is appended in-place
+// Failure: none; may be expensive for large edge sets
 void generateAllIndependentSubsets(const std::vector<std::pair<int,int>>& edges, int index,
                                    std::vector<std::pair<int,int>>& current,
                                    std::vector<std::vector<std::pair<int,int>>>& result) {
@@ -563,10 +563,8 @@ void generateAllIndependentSubsets(const std::vector<std::pair<int,int>>& edges,
         return;
     }
 
-    // Choice 1: exclude current edge
     generateAllIndependentSubsets(edges, index + 1, current, result);
 
-    // Choice 2: include current edge if it doesn't conflict
     bool canInclude = true;
     for (const auto& e : current) {
         if (areAdjacent(e, edges[index])) {
@@ -582,10 +580,10 @@ void generateAllIndependentSubsets(const std::vector<std::pair<int,int>>& edges,
     }
 }
 
-// Definition: Collect all edges incident to a node (parent + children)
-// Parameters: T: tree; node: node id
-// Returns: list of incident (parent, child) edges
-// Errors: returns empty on invalid nodes or tree access failures
+// Purpose: Collect all edges incident to a node (parent + children)
+// Inputs: T: tree; node: node id
+// Output: list of incident (parent, child) edges
+// Failure: returns empty on invalid nodes or tree access failures
 std::vector<std::pair<int,int>> getIncidentEdges(const VectorRangeTreeMap& T, int node) {
     std::vector<std::pair<int,int>> incident;
 
@@ -606,16 +604,15 @@ std::vector<std::pair<int,int>> getIncidentEdges(const VectorRangeTreeMap& T, in
             incident.emplace_back(parent, node);
         }
     } catch (...) {
-        // Return empty on error
     }
 
     return incident;
 }
 
-// Definition: Split S into pairs that fall entirely in T1 vs T2 node sets
-// Parameters: S: edge-pair list; T1/T2: subtree partitions
-// Returns: {S1, S2} containing pairs fully inside each subtree
-// Errors: cross-partition pairs are dropped
+// Purpose: Split S into pairs that fall entirely in T1 vs T2 node sets
+// Inputs: S: edge-pair list; T1/T2: subtree partitions
+// Output: {S1, S2} containing pairs fully inside each subtree
+// Failure: cross-partition pairs are dropped
 std::pair<std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>,
         std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>>
 partitionS(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S,
@@ -636,11 +633,9 @@ partitionS(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&
         auto& edge1 = edgePair.first;
         auto& edge2 = edgePair.second;
 
-        // Check if both edges of the pair belong to T1
         bool edge1_in_T1 = T1.isOriginal(edge1.first) && T1.isOriginal(edge1.second);
         bool edge2_in_T1 = T1.isOriginal(edge2.first) && T1.isOriginal(edge2.second);
 
-        // Check if both edges of the pair belong to T2
         bool edge1_in_T2 = T2.isOriginal(edge1.first) && T2.isOriginal(edge1.second);
         bool edge2_in_T2 = T2.isOriginal(edge2.first) && T2.isOriginal(edge2.second);
 
@@ -649,13 +644,15 @@ partitionS(const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>&
         } else if (edge1_in_T2 && edge2_in_T2) {
             S2.push_back(edgePair);
         }
-        // If edge pair spans both partitions, we could assign to both or neither
-        // For simplicity, we'll ignore cross-partition pairs
+        // A cross-partition constraint cannot be solved independently on either side.
     }
 
     return {std::move(S1), std::move(S2)};
 }
 
+// Purpose: Checks whether two trees produce the same node partition for a child range.
+// Inputs: left (const VectorRangeTreeMap&); right (const VectorRangeTreeMap&); child_range (const std::pair<int, int>&).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 bool partitionNodeSetsMatchByChildRange(const VectorRangeTreeMap& left,
                                        const VectorRangeTreeMap& right,
                                        const std::pair<int, int>& child_range) {
@@ -705,6 +702,9 @@ bool partitionNodeSetsMatchByChildRange(const VectorRangeTreeMap& left,
     }
 }
 
+// Purpose: Appends partner pairs from single diagonal profiled.
+// Inputs: T (const VectorRangeTreeMap&); diagonal (const std::pair<int, int>&); out_pairs (std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>>&); stats (PrefixPairgenRequestStats*).
+// Output: No return value; updates referenced outputs or shared state.
 void appendPartnerPairsFromSingleDiagonalProfiled(
     const VectorRangeTreeMap& T,
     const std::pair<int, int>& diagonal,
@@ -793,24 +793,21 @@ void appendPartnerPairsFromSingleDiagonalProfiled(
     stats->emitted_pairs = static_cast<int>(out_pairs.size());
 }
 
-// Definition: Build independent edge subsets from S
-// Parameters: S: list of edge pairs to branch on
-// Returns: vector of independent edge sets
-// Errors: none; may be exponential in size of S
+// Purpose: Build independent edge subsets from S
+// Inputs: S: list of edge pairs to branch on
+// Output: vector of independent edge sets
+// Failure: none; may be exponential in size of S
 std::vector<std::vector<std::pair<int,int>>> generateIndependentSubsetsFromS(
         const std::vector<std::pair<std::pair<int,int>, std::pair<int,int>>>& S) {
 
-    // First, collect all unique edges from S
     std::set<std::pair<int,int>> allEdges;
     for (const auto& edgePair : S) {
         allEdges.insert(edgePair.first);
         allEdges.insert(edgePair.second);
     }
 
-    // Convert to vector for subset generation
     std::vector<std::pair<int,int>> edgeVector(allEdges.begin(), allEdges.end());
 
-    // Generate independent subsets
     std::vector<std::vector<std::pair<int,int>>> independentSubsets;
     std::vector<std::pair<int,int>> current;
 
@@ -819,6 +816,9 @@ std::vector<std::vector<std::pair<int,int>>> generateIndependentSubsetsFromS(
     return independentSubsets;
 }
 
+// Purpose: Appends partner pairs from diagonals.
+// Inputs: T (const VectorRangeTreeMap &); diagonals (const std::vector<std::pair<int, int>> &); out_pairs (std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> &).
+// Output: No return value; updates referenced outputs or shared state.
 void appendPartnerPairsFromDiagonals(
     const VectorRangeTreeMap &T,
     const std::vector<std::pair<int, int>> &diagonals,

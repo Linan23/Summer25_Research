@@ -18,46 +18,41 @@
 #include <unordered_set>
 #include <vector>
 
-// Definition: Simple stopwatch for milliseconds and microseconds timing
-// Parameters: none
-// Returns: constructed timer
-// Errors: none
+// Purpose: Simple stopwatch for milliseconds and microseconds timing
+// Inputs: none
+// Output: constructed timer
 class PerformanceTimer {
 private:
     std::chrono::steady_clock::time_point start_time;
 public:
-    // Definition: Start or reset the timer
-    // Parameters: none
-    // Returns: nothing
-    // Errors: none
+    // Purpose: Start or reset the timer
+    // Inputs: none
+    // Output: nothing
     void start() { start_time = std::chrono::steady_clock::now(); }
 
-    // Definition: Elapsed time in microseconds since start
-    // Parameters: none
-    // Returns: elapsed microseconds
-    // Errors: none
+    // Purpose: Elapsed time in microseconds since start
+    // Inputs: none
+    // Output: elapsed microseconds
     long long getMicroseconds() {
         auto end_time = std::chrono::steady_clock::now();
         return std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
     }
 
-    // Definition: Elapsed time in milliseconds since start
-    // Parameters: none
-    // Returns: elapsed milliseconds
-    // Errors: none
+    // Purpose: Elapsed time in milliseconds since start
+    // Inputs: none
+    // Output: elapsed milliseconds
     double getMilliseconds() { return getMicroseconds() / 1000.0; }
 };
 
-// Definition: Deterministic tree shape generators for CLI inputs
-// Parameters: none
-// Returns: class with static generation helpers
-// Errors: none
+// Purpose: Deterministic tree shape generators for CLI inputs
+// Inputs: none
+// Output: class with static generation helpers
 class TreeGenerator {
 public:
-    // Definition: Right-leaning chain tree
-    // Parameters: n: number of nodes
-    // Returns: {preorder, inorder} vectors
-    // Errors: returns empty vectors if n <= 0
+    // Purpose: Right-leaning chain tree
+    // Inputs: n: number of nodes
+    // Output: {preorder, inorder} vectors
+    // Failure: returns empty vectors if n <= 0
     static std::pair<std::vector<int>, std::vector<int>> generateRightChain(int n) {
         std::vector<int> preorder, inorder;
         for (int i = 1; i <= n; i++) {
@@ -67,10 +62,10 @@ public:
         return {preorder, inorder};
     }
 
-    // Definition: Left-leaning chain tree
-    // Parameters: n: number of nodes
-    // Returns: {preorder, inorder} vectors
-    // Errors: returns empty vectors if n <= 0
+    // Purpose: Left-leaning chain tree
+    // Inputs: n: number of nodes
+    // Output: {preorder, inorder} vectors
+    // Failure: returns empty vectors if n <= 0
     static std::pair<std::vector<int>, std::vector<int>> generateLeftChain(int n) {
         std::vector<int> preorder, inorder;
         for (int i = n; i >= 1; i--) {
@@ -82,10 +77,10 @@ public:
         return {preorder, inorder};
     }
 
-    // Definition: Balanced BST shape
-    // Parameters: n: number of nodes
-    // Returns: {preorder, inorder} vectors
-    // Errors: returns empty vectors if n <= 0
+    // Purpose: Balanced BST shape
+    // Inputs: n: number of nodes
+    // Output: {preorder, inorder} vectors
+    // Failure: returns empty vectors if n <= 0
     static std::pair<std::vector<int>, std::vector<int>> generateBalanced(int n) {
         if (n == 0) return {{}, {}};
         if (n == 1) return {{1}, {1}};
@@ -111,10 +106,10 @@ public:
         return {preorder, inorder};
     }
 
-    // Definition: Random BST shape from shuffled insertion order
-    // Parameters: n: number of nodes; seed: shuffle seed
-    // Returns: {preorder, inorder} vectors
-    // Errors: returns empty vectors if n <= 0
+    // Purpose: Random BST shape from shuffled insertion order
+    // Inputs: n: number of nodes; seed: shuffle seed
+    // Output: {preorder, inorder} vectors
+    // Failure: returns empty vectors if n <= 0
     static std::pair<std::vector<int>, std::vector<int>> generateRandom(int n, int seed = 42) {
         if (n <= 0) return {{}, {}};
 
@@ -122,6 +117,9 @@ public:
             int v;
             Node *l = nullptr;
             Node *r = nullptr;
+            // Purpose: Creates a temporary BST node for random CLI case generation.
+            // Inputs: val: node label to store.
+            // Output: A node with no children.
             explicit Node(int val) : v(val) {}
         };
         auto insert = [](Node *root, int val) -> Node * {
@@ -167,10 +165,10 @@ public:
     }
 };
 
-// Definition: Encode a tree as P:...;I:... for parity scripts
-// Parameters: T: tree to encode
-// Returns: string encoding of preorder and inorder
-// Errors: returns empty encodings if the tree has empty traversals
+// Purpose: Encode a tree as P:...;I:... for parity scripts
+// Inputs: T: tree to encode
+// Output: string encoding of preorder and inorder
+// Failure: returns empty encodings if the tree has empty traversals
 static std::string treeToPreInString(const VectorRangeTreeMap &T) {
     auto join = [](const std::vector<int> &vals) {
         std::ostringstream oss;
@@ -185,10 +183,10 @@ static std::string treeToPreInString(const VectorRangeTreeMap &T) {
     return oss.str();
 }
 
-// Definition: Encode current tree state as P:...;I:... by traversing live structure
-// Parameters: T: tree to encode
-// Returns: string encoding of current preorder and inorder traversals
-// Errors: returns empty traversals for invalid/empty trees
+// Purpose: Encode current tree state as P:...;I:... by traversing live structure
+// Inputs: T: tree to encode
+// Output: string encoding of current preorder and inorder traversals
+// Failure: returns empty traversals for invalid/empty trees
 static std::string currentTreeToPreInString(const VectorRangeTreeMap &T) {
     std::vector<int> preorder;
     std::vector<int> inorder;
@@ -221,10 +219,10 @@ static std::string currentTreeToPreInString(const VectorRangeTreeMap &T) {
     return oss.str();
 }
 
-// Definition: Read a whole text file into a string
-// Parameters: path: file path to read
-// Returns: file contents
-// Errors: throws on open or read failure
+// Purpose: Read a whole text file into a string
+// Inputs: path: file path to read
+// Output: file contents
+// Failure: throws on open or read failure
 static std::string readTextFile(const std::string &path) {
     std::ifstream in(path);
     if (!in) {
@@ -235,10 +233,10 @@ static std::string readTextFile(const std::string &path) {
     return buffer.str();
 }
 
-// Definition: Read an integer env var with bounds and a fallback
-// Parameters: name: env var name, fallback: value when unset, min_value/max_value: clamp range
-// Returns: parsed integer value
-// Errors: malformed values fall back through atoi semantics and are clamped
+// Purpose: Read an integer env var with bounds and a fallback
+// Inputs: name: env var name, fallback: value when unset, min_value/max_value: clamp range
+// Output: parsed integer value
+// Failure: malformed values fall back through atoi semantics and are clamped
 static int readEnvInt(const char *name, int fallback, int min_value, int max_value) {
     const char *env = std::getenv(name);
     int value = fallback;
@@ -250,10 +248,9 @@ static int readEnvInt(const char *name, int fallback, int min_value, int max_val
     return value;
 }
 
-// Definition: Trim leading and trailing ASCII whitespace
-// Parameters: value: input text
-// Returns: trimmed string
-// Errors: none
+// Purpose: Trim leading and trailing ASCII whitespace
+// Inputs: value: input text
+// Output: trimmed string
 static std::string trimAscii(std::string value) {
     const auto is_ws = [](unsigned char c) {
         return c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\f' || c == '\v';
@@ -267,10 +264,10 @@ static std::string trimAscii(std::string value) {
     return value;
 }
 
-// Definition: Parse a comma-separated integer list
-// Parameters: part: comma-separated integer text
-// Returns: parsed integer vector
-// Errors: throws on invalid integers
+// Purpose: Parse a comma-separated integer list
+// Inputs: part: comma-separated integer text
+// Output: parsed integer vector
+// Failure: throws on invalid integers
 static std::vector<int> parseIntSequence(const std::string &part) {
     std::vector<int> out;
     std::stringstream ss(part);
@@ -283,10 +280,10 @@ static std::vector<int> parseIntSequence(const std::string &part) {
     return out;
 }
 
-// Definition: Build a tree from a canonical P:...;I:... traversal string
-// Parameters: canonical: encoded preorder/inorder string
-// Returns: constructed tree
-// Errors: throws on malformed input
+// Purpose: Build a tree from a canonical P:...;I:... traversal string
+// Inputs: canonical: encoded preorder/inorder string
+// Output: constructed tree
+// Failure: throws on malformed input
 static VectorRangeTreeMap treeFromCanonicalString(const std::string &canonical) {
     std::string text = trimAscii(canonical);
     if (text.rfind("P:", 0) != 0) {
@@ -310,10 +307,10 @@ static VectorRangeTreeMap treeFromCanonicalString(const std::string &canonical) 
     return out;
 }
 
-// Definition: Render a horizontal ASCII tree (parent over children) similar to textbook diagrams
-// Parameters: T: tree to render; base_indent: prefix added to each line
-// Returns: nothing
-// Errors: prints a placeholder for empty trees
+// Purpose: Render a horizontal ASCII tree (parent over children) similar to textbook diagrams
+// Inputs: T: tree to render; base_indent: prefix added to each line
+// Output: nothing
+// Failure: prints a placeholder for empty trees
 static void printAsciiTreeDiagram(const VectorRangeTreeMap &T, const std::string &base_indent = "    ") {
     if (T.root < 0 || !T.isOriginal(T.root) || T.original_nodes.empty()) {
         std::cout << base_indent << "(empty tree)\n";
@@ -403,10 +400,10 @@ static void printAsciiTreeDiagram(const VectorRangeTreeMap &T, const std::string
     }
 }
 
-// Definition: Print node relationships for a tree state
-// Parameters: T: tree to print; indent: line prefix
-// Returns: nothing
-// Errors: prints nothing for empty trees
+// Purpose: Print node relationships for a tree state
+// Inputs: T: tree to print; indent: line prefix
+// Output: nothing
+// Failure: prints nothing for empty trees
 static void printNodeRelations(const VectorRangeTreeMap &T, const std::string &indent = "    ") {
     std::vector<int> nodes(T.original_nodes.begin(), T.original_nodes.end());
     std::sort(nodes.begin(), nodes.end());
@@ -442,10 +439,9 @@ struct CliOptions {
     bool help = false;
 };
 
-// Definition: Emit CLI usage help
-// Parameters: argv0: program name
-// Returns: nothing
-// Errors: none
+// Purpose: Emit CLI usage help
+// Inputs: argv0: program name
+// Output: nothing
 static void printUsage(const char *argv0) {
     std::cerr << "Usage: " << argv0 << " --case random|simple|comb --n <int> [--seed <int>] [--count <int>]\n"
               << "       [--max-k <int>] [--bfs-cap <int>] [--print-trees] [--emit-path] [--path-ascii]\n"
@@ -453,14 +449,17 @@ static void printUsage(const char *argv0) {
               << "   Note: --case simple is the clearer alias for the older --case comb.\n";
 }
 
+// Purpose: Reports whether simple generated case.
+// Inputs: case_type (const std::string &).
+// Output: True when the stated condition holds or operation succeeds; otherwise false.
 static bool isSimpleGeneratedCase(const std::string &case_type) {
     return case_type == "simple" || case_type == "comb";
 }
 
-// Definition: Parse CLI flags into CliOptions
-// Parameters: argc/argv: CLI args; opts: output options
-// Returns: true if parsing succeeds, else false
-// Errors: prints to stderr on unknown args
+// Purpose: Parse CLI flags into CliOptions
+// Inputs: argc/argv: CLI args; opts: output options
+// Output: true if parsing succeeds, else false
+// Failure: prints to stderr on unknown args
 static bool parseArgs(int argc, char **argv, CliOptions &opts) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -532,10 +531,10 @@ struct PathBuildResult {
     std::vector<std::string> moves;
 };
 
-// Definition: Build a shortest rotation path with BFS for debug printing
-// Parameters: source/target: trees; depth_cap: max BFS depth; state_cap: max visited states
-// Returns: path states and moves if found, or capped/not-found status
-// Errors: returns found=false on cap hit or if no path within depth_cap
+// Purpose: Build a shortest rotation path with BFS for debug printing
+// Inputs: source/target: trees; depth_cap: max BFS depth; state_cap: max visited states
+// Output: path states and moves if found, or capped/not-found status
+// Failure: returns found=false on cap hit or if no path within depth_cap
 static PathBuildResult buildShortestRotationPathBfs(const VectorRangeTreeMap &source,
                                                     const VectorRangeTreeMap &target,
                                                     int depth_cap,
@@ -640,10 +639,10 @@ static PathBuildResult buildShortestRotationPathBfs(const VectorRangeTreeMap &so
     return out;
 }
 
-// Definition: Print path steps and optional ASCII trees for each step
-// Parameters: direction: a->b or b->a; T1/T2: source and target trees; dist: expected shortest distance; ascii: print tree shape if true
-// Returns: nothing
-// Errors: prints a skip/cap message if path search is too large
+// Purpose: Print path steps and optional ASCII trees for each step
+// Inputs: direction: a->b or b->a; T1/T2: source and target trees; dist: expected shortest distance; ascii: print tree shape if true
+// Output: nothing
+// Failure: prints a skip/cap message if path search is too large
 static void emitRotationPath(const char *direction,
                              const VectorRangeTreeMap &T1,
                              const VectorRangeTreeMap &T2,
@@ -654,7 +653,7 @@ static void emitRotationPath(const char *direction,
         return;
     }
 
-    // Keep debug path generation bounded so normal large runs do not explode
+    // Debug reconstruction is exponential, so explicit caps keep diagnostics from dominating a run.
     const int n = static_cast<int>(T1.original_nodes.size());
     const int max_n = readEnvInt("FLIPDIST_PATH_DEBUG_MAX_N", 14, 1, 64);
     const int max_dist = readEnvInt("FLIPDIST_PATH_DEBUG_MAX_DIST", 14, 1, 128);
@@ -717,10 +716,10 @@ static void emitRotationPath(const char *direction,
     }
 }
 
-// Definition: Execute the FlipDist CLI and emit JSON result lines
-// Parameters: argc/argv: CLI args
-// Returns: exit code, 0 on success and nonzero on invalid args
-// Errors: prints to stderr on invalid args or unsupported cases
+// Purpose: Execute the FlipDist CLI and emit JSON result lines
+// Inputs: argc/argv: CLI args
+// Output: exit code, 0 on success and nonzero on invalid args
+// Failure: prints to stderr on invalid args or unsupported cases
 int runCli(int argc, char **argv) {
     CliOptions opts;
     if (!parseArgs(argc, argv, opts)) {

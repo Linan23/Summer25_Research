@@ -8,28 +8,25 @@
 #include <utility>
 #include <cstdint>
 
-// Definition: Hash a (parent, child) pair for unordered containers
-// Parameters: p: pair to hash
-// Returns: hash value
-// Errors: none
+// Purpose: Hash a (parent, child) pair for unordered containers
+// Inputs: p: pair to hash
+// Output: hash value
 struct PairHash
 {
     size_t operator()(const std::pair<int, int> &p) const;
 };
 
-// Definition: Compare two (parent, child) pairs for equality
-// Parameters: a: first pair; b: second pair
-// Returns: true if both pairs match
-// Errors: none
+// Purpose: Compare two (parent, child) pairs for equality
+// Inputs: a: first pair; b: second pair
+// Output: true if both pairs match
 struct PairEq
 {
     bool operator()(const std::pair<int, int> &a, const std::pair<int, int> &b) const;
 };
 
-// Definition: Binary-tree storage with inorder range metadata
-// Parameters: none
-// Returns: struct instance
-// Errors: none
+// Purpose: Binary-tree storage with inorder range metadata
+// Inputs: none
+// Output: struct instance
 struct VectorRangeTreeMap
 {
     std::vector<std::pair<int, int>> ranges;
@@ -49,110 +46,106 @@ struct VectorRangeTreeMap
     static constexpr int NO_CHILD = -1;
     static constexpr int NO_PARENT = -1;
 
-    // Definition: Initialize an empty tree with default values
-    // Parameters: none
-    // Returns: constructed tree
-    // Errors: none
+    // Purpose: Initialize an empty tree with default values
+    // Inputs: none
+    // Output: constructed tree
     VectorRangeTreeMap();
 
-    // Definition: Build tree and ranges from preorder and inorder traversals
-    // Parameters: preorder: preorder node list; inorder: inorder node list
-    // Returns: nothing
-    // Errors: leaves tree empty on invalid input
+    // Purpose: Build tree and ranges from preorder and inorder traversals
+    // Inputs: preorder: preorder node list; inorder: inorder node list
+    // Output: nothing
+    // Failure: leaves tree empty on invalid input
     void build(const std::vector<int> &preorder, const std::vector<int> &inorder);
 
 public:
-    // Definition: Get the left child of a node
-    // Parameters: node_value: node id
-    // Returns: left child id or NO_CHILD
-    // Errors: returns NO_CHILD for invalid node
+    // Purpose: Get the left child of a node
+    // Inputs: node_value: node id
+    // Output: left child id or NO_CHILD
+    // Failure: returns NO_CHILD for invalid node
     int getLeftChild(int node_value) const;
 
-    // Definition: Get the right child of a node
-    // Parameters: node_value: node id
-    // Returns: right child id or NO_CHILD
-    // Errors: returns NO_CHILD for invalid node
+    // Purpose: Get the right child of a node
+    // Inputs: node_value: node id
+    // Output: right child id or NO_CHILD
+    // Failure: returns NO_CHILD for invalid node
     int getRightChild(int node_value) const;
 
-    // Definition: Get the parent of a node
-    // Parameters: node_value: node id
-    // Returns: parent id or NO_PARENT
-    // Errors: returns NO_PARENT for invalid node
+    // Purpose: Get the parent of a node
+    // Inputs: node_value: node id
+    // Output: parent id or NO_PARENT
+    // Failure: returns NO_PARENT for invalid node
     int getParent(int node_value) const;
 
-    // Definition: Get the inorder range for a node
-    // Parameters: node_value: node id
-    // Returns: {start, end} range or {0,0} if invalid
-    // Errors: returns {0,0} for invalid node
+    // Purpose: Get the inorder range for a node
+    // Inputs: node_value: node id
+    // Output: {start, end} range or {0,0} if invalid
+    // Failure: returns {0,0} for invalid node
     std::pair<int, int> getRange(int node_value) const;
 
-    // Definition: Check if a node is part of the original node set
-    // Parameters: node_value: node id
-    // Returns: true if node is original
-    // Errors: none
+    // Purpose: Check if a node is part of the original node set
+    // Inputs: node_value: node id
+    // Output: true if node is original
     bool isOriginal(int node_value) const;
 
-    // Definition: Set left child and update parent pointers
-    // Parameters: node_value: parent node id; child_value: child node id
-    // Returns: nothing
-    // Errors: ignores invalid node ids
+    // Purpose: Set left child and update parent pointers
+    // Inputs: node_value: parent node id; child_value: child node id
+    // Output: nothing
+    // Failure: ignores invalid node ids
     void setLeftChild(int node_value, int child_value);
 
-    // Definition: Set right child and update parent pointers
-    // Parameters: node_value: parent node id; child_value: child node id
-    // Returns: nothing
-    // Errors: ignores invalid node ids
+    // Purpose: Set right child and update parent pointers
+    // Inputs: node_value: parent node id; child_value: child node id
+    // Output: nothing
+    // Failure: ignores invalid node ids
     void setRightChild(int node_value, int child_value);
 
-    // Definition: Rotate a node left and update ranges
-    // Parameters: x: node id to rotate
-    // Returns: nothing
-    // Errors: no-op if rotation is not possible
+    // Purpose: Rotate a node left and update ranges
+    // Inputs: x: node id to rotate
+    // Output: nothing
+    // Failure: no-op if rotation is not possible
     void rotateLeft(int x);
 
-    // Definition: Rotate a node right and update ranges
-    // Parameters: x: node id to rotate
-    // Returns: nothing
-    // Errors: no-op if rotation is not possible
+    // Purpose: Rotate a node right and update ranges
+    // Inputs: x: node id to rotate
+    // Output: nothing
+    // Failure: no-op if rotation is not possible
     void rotateRight(int x);
 
-    // Definition: Partition a tree along an edge defined by inorder ranges
-    // Parameters: T: source tree; parent_range: parent range; child_range: child range
-    // Returns: pair of subtrees {A, B}
-    // Errors: may return empty subtrees for invalid ranges
+    // Purpose: Partition a tree along an edge defined by inorder ranges
+    // Inputs: T: source tree; parent_range: parent range; child_range: child range
+    // Output: pair of subtrees {A, B}
+    // Failure: may return empty subtrees for invalid ranges
     static std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
     partitionAlongEdge(const VectorRangeTreeMap &T,
                        const std::pair<int, int> &parent_range,
                        const std::pair<int, int> &child_range);
 
-    // Definition: Partition a tree when child_range is known to be a subtree range
-    // Parameters: T: source tree; child_range: subtree inorder range
-    // Returns: pair of subtrees {A, B}
-    // Errors: may return empty subtrees for invalid ranges
+    // Purpose: Partition a tree when child_range is known to be a subtree range
+    // Inputs: T: source tree; child_range: subtree inorder range
+    // Output: pair of subtrees {A, B}
+    // Failure: may return empty subtrees for invalid ranges
     static std::pair<VectorRangeTreeMap, VectorRangeTreeMap>
     partitionAlongSubtreeRange(const VectorRangeTreeMap &T,
                                const std::pair<int, int> &child_range);
 
-    // Definition: Collect all edges into a set from a subtree
-    // Parameters: node: subtree root; out: output set
-    // Returns: nothing
-    // Errors: no-op on invalid nodes
+    // Purpose: Collect all edges into a set from a subtree
+    // Inputs: node: subtree root; out: output set
+    // Output: nothing
+    // Failure: no-op on invalid nodes
     void collectEdges(int node,
                       std::unordered_set<std::pair<int,int>,PairHash,PairEq>& out) const;
 
-    // Definition: Print the tree structure with ranges and parents
-    // Parameters: node_value: starting node or -2 for root; indent: prefix string
-    // Returns: nothing
-    // Errors: no-op on invalid nodes
+    // Purpose: Print the tree structure with ranges and parents
+    // Inputs: node_value: starting node or -2 for root; indent: prefix string
+    // Output: nothing
+    // Failure: no-op on invalid nodes
     void printTreeStructure(int node_value = -2, std::string indent = "") const;
 
-    // Definition: Print full tree data (structure, ranges, edges, parents)
-    // Parameters: none
-    // Returns: nothing
-    // Errors: none
+    // Purpose: Print full tree data (structure, ranges, edges, parents)
+    // Inputs: none
+    // Output: nothing
     void print() const;
 
-    // For external use
     friend bool TreesEqual(const VectorRangeTreeMap &A, const VectorRangeTreeMap &B);
     friend std::string treeToString(const VectorRangeTreeMap &T);
     friend int BFSSearch(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
@@ -161,110 +154,105 @@ public:
     friend int FindRotationDistance(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final);
 
 private:
-    // Definition: Recursive builder helper for build()
-    // Parameters: preorder/inorder: traversal arrays; ps/pe/is/ie: ranges; parent: parent id
-    // Returns: nothing
-    // Errors: no-op on invalid ranges
+    // Purpose: Recursive builder helper for build()
+    // Inputs: preorder/inorder: traversal arrays; ps/pe/is/ie: ranges; parent: parent id
+    // Output: nothing
+    // Failure: no-op on invalid ranges
     void buildRecursive(const std::vector<int> &preorder, const std::vector<int> &inorder,
                         int ps, int pe, int is, int ie, int parent);
 
-    // Definition: Reset internal storage
-    // Parameters: none
-    // Returns: nothing
-    // Errors: none
+    // Purpose: Reset internal storage
+    // Inputs: none
+    // Output: nothing
     void clear();
 
-    // Definition: Shared implementation for full/light tree construction
-    // Parameters: preorder/inorder traversals; populate_nodes/preorder: metadata fill toggles
-    // Returns: nothing
-    // Errors: leaves tree empty on invalid input
+    // Purpose: Shared implementation for full/light tree construction
+    // Inputs: preorder/inorder traversals; populate_nodes/preorder: metadata fill toggles
+    // Output: nothing
+    // Failure: leaves tree empty on invalid input
     void buildImpl(const std::vector<int> &preorder, const std::vector<int> &inorder,
                    bool populate_nodes, bool store_preorder);
 
-    // Definition: Build tree metadata without populating original_nodes
-    // Parameters: preorder/inorder: traversal arrays
-    // Returns: nothing
-    // Errors: leaves tree empty on invalid input
+    // Purpose: Build tree metadata without populating original_nodes
+    // Inputs: preorder/inorder: traversal arrays
+    // Output: nothing
+    // Failure: leaves tree empty on invalid input
     void buildLight(const std::vector<int> &preorder, const std::vector<int> &inorder);
 
-    // Definition: Recompute ranges for all nodes
-    // Parameters: none
-    // Returns: nothing
-    // Errors: none
+    // Purpose: Recompute ranges for all nodes
+    // Inputs: none
+    // Output: nothing
     void calculateAllRanges();
 
-    // Definition: Recompute range for a single node
-    // Parameters: node_value: node id
-    // Returns: nothing
-    // Errors: no-op on invalid node
+    // Purpose: Recompute range for a single node
+    // Inputs: node_value: node id
+    // Output: nothing
+    // Failure: no-op on invalid node
     void updateNodeRange(int node_value);
 
-    // Definition: Post-order range update for a subtree
-    // Parameters: node_value: subtree root id
-    // Returns: nothing
-    // Errors: no-op on invalid node
+    // Purpose: Post-order range update for a subtree
+    // Inputs: node_value: subtree root id
+    // Output: nothing
+    // Failure: no-op on invalid node
     void calculateRangesPostOrder(int node_value);
 };
 
-// Definition: Range edge key for diagonal detection (child range only)
-// Parameters: none
-// Returns: struct instance
-// Errors: none
+// Purpose: Range edge key for diagonal detection (child range only)
+// Inputs: none
+// Output: struct instance
 struct RP { int ps, pe, cs, ce; bool operator==(RP const&) const; };
 
-// Definition: Hash for RP range edges
-// Parameters: none
-// Returns: struct instance
-// Errors: none
+// Purpose: Hash for RP range edges
+// Inputs: none
+// Output: struct instance
 struct RPH { size_t operator()(RP const&) const; };
 
-// Definition: Collect all target range edges from a tree
-// Parameters: T: tree to scan
-// Returns: set of range edges
-// Errors: returns empty on invalid tree
+// Purpose: Collect all target range edges from a tree
+// Inputs: T: tree to scan
+// Output: set of range edges
+// Failure: returns empty on invalid tree
 std::unordered_set<RP,RPH> buildTargetSet(const VectorRangeTreeMap&);
 
-// Definition: Check if a tree contains a given range edge
-// Parameters: tree: tree to scan; e: range edge
-// Returns: true if edge exists
-// Errors: returns false on invalid input
+// Purpose: Check if a tree contains a given range edge
+// Inputs: tree: tree to scan; e: range edge
+// Output: true if edge exists
+// Failure: returns false on invalid input
 bool hasEdgeByRange(const VectorRangeTreeMap &tree, const RP &e);
 
-// Definition: Detect a free edge that would insert a target edge
-// Parameters: cur: current tree; tgt: target tree; out_v: rotation node; out_leftRotation: direction
-// Returns: true if a free edge is found
-// Errors: returns false on invalid trees or if no free edge exists
+// Purpose: Detect a free edge that would insert a target edge
+// Inputs: cur: current tree; tgt: target tree; out_v: rotation node; out_leftRotation: direction
+// Output: true if a free edge is found
+// Failure: returns false on invalid trees or if no free edge exists
 bool hasFreeEdge(const VectorRangeTreeMap &cur, const VectorRangeTreeMap &tgt,
                  int &out_v, bool &out_leftRotation);
 
-// Definition: Brute-force BFS rotation distance between two trees
-// Parameters: Ts: source tree; Te: target tree
-// Returns: minimum rotation distance or INT_MAX if not found
-// Errors: returns INT_MAX on failures
+// Purpose: Brute-force BFS rotation distance between two trees
+// Inputs: Ts: source tree; Te: target tree
+// Output: minimum rotation distance or INT_MAX if not found
+// Failure: returns INT_MAX on failures
 int BFSSearch(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 
-// Definition: Apply one free-edge rotation and recurse via partitioning
-// Parameters: Ts: source tree; Te: target tree
-// Returns: distance contribution for that free edge path
-// Errors: falls back to BFSSearch on partition mismatch
+// Purpose: Apply one free-edge rotation and recurse via partitioning
+// Inputs: Ts: source tree; Te: target tree
+// Output: distance contribution for that free edge path
+// Failure: falls back to BFSSearch on partition mismatch
 int removeFreeEdge(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 
-// Definition: Compute rotation distance using free-edge shortcut + BFS fallback
-// Parameters: Ts: source tree; Te: target tree
-// Returns: rotation distance
-// Errors: falls back to BFSSearch on cycles or mismatches
+// Purpose: Compute rotation distance using free-edge shortcut + BFS fallback
+// Inputs: Ts: source tree; Te: target tree
+// Output: rotation distance
+// Failure: falls back to BFSSearch on cycles or mismatches
 int Dist(const VectorRangeTreeMap &Ts, const VectorRangeTreeMap &Te);
 
-// Definition: Clear memoization and compute rotation distance
-// Parameters: T_init: source tree; T_final: target tree
-// Returns: rotation distance
-// Errors: none
+// Purpose: Clear memoization and compute rotation distance
+// Inputs: T_init: source tree; T_final: target tree
+// Output: rotation distance
 int FindRotationDistance(const VectorRangeTreeMap &T_init, const VectorRangeTreeMap &T_final);
 
-// Definition: Run internal verification tests
-// Parameters: none
-// Returns: nothing
-// Errors: asserts on failure
+// Purpose: Run internal verification tests
+// Inputs: none
+// Output: nothing
+// Failure: asserts on failure
 void runAllTests();
 
-#endif // BF_BST_H
+#endif
